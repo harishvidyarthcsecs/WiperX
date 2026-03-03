@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}Add Machine{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-7">
+        <div class="mb-4">
+            <h3 style="color:#e74c3c; font-weight:700; letter-spacing:2px">
+                <i class="bi bi-plus-circle"></i> ADD REMOTE MACHINE
+            </h3>
+        </div>
+        <div class="card">
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('machines.add') }}">
+                    <div class="mb-3">
+                        <label class="form-label">Hostname / IP Address *</label>
+                        <input type="text" name="hostname" class="form-control"
+                               placeholder="192.168.1.10 or server.domain.com" required>
+                    </div>
+                    <div class="row mb-3">
+                        <div class="col">
+                            <label class="form-label">OS Type</label>
+                            <select name="os_type" class="form-select">
+                                <option value="unknown">Auto-detect</option>
+                                <option value="linux">Linux</option>
+                                <option value="windows">Windows</option>
+                            </select>
+                        </div>
+                        <div class="col">
+                            <label class="form-label">Connection Type *</label>
+                            <select name="connection_type" class="form-select" id="conn-type"
+                                    onchange="toggleFields()">
+                                <option value="ssh">SSH (Linux)</option>
+                                <option value="winrm">WinRM (Windows)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- SSH Fields -->
+                    <div id="ssh-fields">
+                        <hr><p class="text-muted small">SSH Configuration (Key-based auth only)</p>
+                        <div class="row mb-3">
+                            <div class="col">
+                                <label class="form-label">SSH Username</label>
+                                <input type="text" name="ssh_username" class="form-control" placeholder="admin">
+                            </div>
+                            <div class="col">
+                                <label class="form-label">SSH Port</label>
+                                <input type="number" name="ssh_port" class="form-control" value="22">
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Private Key Path</label>
+                            <input type="text" name="ssh_key_path" class="form-control"
+                                   placeholder="/home/user/.ssh/wiperx_key">
+                            <div class="form-text text-muted">
+                                Path to SSH private key on the WiperX server.
+                                Set WIPERX_SSH_KEY_PATH env var as alternative.
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- WinRM Fields -->
+                    <div id="winrm-fields" style="display:none">
+                        <hr><p class="text-muted small">WinRM Configuration (HTTPS only)</p>
+                        <div class="row mb-3">
+                            <div class="col">
+                                <label class="form-label">WinRM Username</label>
+                                <input type="text" name="winrm_username" class="form-control" placeholder="Administrator">
+                            </div>
+                            <div class="col">
+                                <label class="form-label">WinRM Port</label>
+                                <input type="number" name="winrm_port" class="form-control" value="5986">
+                            </div>
+                        </div>
+                        <div class="alert alert-warning py-2 small">
+                            <i class="bi bi-shield-lock"></i>
+                            WinRM password must be set via <code>WIPERX_WINRM_PASS</code> environment variable.
+                            Never stored in this form.
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Description (optional)</label>
+                        <input type="text" name="description" class="form-control"
+                               placeholder="e.g. Lab server, Build machine...">
+                    </div>
+
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-danger">
+                            <i class="bi bi-plus-circle me-2"></i>Register Machine
+                        </button>
+                        <a href="{{ url_for('machines.index') }}" class="btn btn-outline-secondary">Cancel</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% block extra_js %}
+<script>
+function toggleFields() {
+    const val = document.getElementById("conn-type").value;
+    document.getElementById("ssh-fields").style.display = val === "ssh" ? "block" : "none";
+    document.getElementById("winrm-fields").style.display = val === "winrm" ? "block" : "none";
+}
+</script>
+{% endblock %}
+{% endblock %}

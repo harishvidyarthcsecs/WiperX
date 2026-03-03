@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}Disk Scan — {{ target }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h3 style="color:#e74c3c; font-weight:700; letter-spacing:2px">
+            <i class="bi bi-hdd-rack"></i> DISK SCAN
+        </h3>
+        <p class="text-muted mb-0">Target: <strong>{{ target }}</strong></p>
+    </div>
+    <a href="{{ url_for('dashboard.index') }}" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-arrow-left"></i> Back
+    </a>
+</div>
+
+{% if error %}
+<div class="alert alert-danger">
+    <i class="bi bi-exclamation-triangle"></i>
+    <strong>Scan Failed:</strong> {{ error }}
+</div>
+{% elif not disks %}
+<div class="alert alert-warning">No disks found on {{ target }}.</div>
+{% else %}
+<div class="card">
+    <div class="card-header d-flex justify-content-between">
+        <strong><i class="bi bi-hdd"></i> Discovered Disks ({{ disks|length }})</strong>
+        <span class="text-muted small">System/Mounted disks cannot be wiped</span>
+    </div>
+    <div class="card-body p-0">
+        <table class="table table-hover mb-0">
+            <thead>
+                <tr>
+                    <th>Identifier</th>
+                    <th>Model</th>
+                    <th>Serial</th>
+                    <th>Size</th>
+                    <th>Type</th>
+                    <th>Bus</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for disk in disks %}
+                <tr>
+                    <td><code>{{ disk.identifier }}</code></td>
+                    <td>{{ disk.model }}</td>
+                    <td><code style="font-size:0.78rem">{{ disk.serial or '—' }}</code></td>
+                    <td>{{ disk.size_human }}</td>
+                    <td><span class="badge bg-secondary">{{ disk.disk_type }}</span></td>
+                    <td><span class="badge bg-secondary">{{ disk.bus_type }}</span></td>
+                    <td>
+                        {% if disk.is_system %}
+                            <span class="badge" style="background:#e74c3c"><i class="bi bi-shield-fill"></i> SYSTEM</span>
+                        {% elif disk.is_mounted %}
+                            <span class="badge" style="background:#f39c12"><i class="bi bi-hdd-fill"></i> MOUNTED</span>
+                        {% else %}
+                            <span class="badge" style="background:#27ae60"><i class="bi bi-check-circle"></i> Available</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if not disk.is_system and not disk.is_mounted %}
+                        <a href="{{ url_for('wipe.confirm',
+                               disk_id=disk.identifier,
+                               machine_id=machine_id or 'local',
+                               target=target) }}"
+                           class="btn btn-danger btn-sm">
+                            <i class="bi bi-trash3"></i> Wipe
+                        </a>
+                        {% else %}
+                        <button class="btn btn-secondary btn-sm" disabled title="Protected disk">
+                            <i class="bi bi-lock"></i> Protected
+                        </button>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

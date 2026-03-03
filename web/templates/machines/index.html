@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Machines{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h3 style="color:#e74c3c; font-weight:700; letter-spacing:2px">
+        <i class="bi bi-pc-display"></i> REMOTE MACHINES
+    </h3>
+    {% if current_user.can('manage_machines') %}
+    <a href="{{ url_for('machines.add') }}" class="btn btn-danger btn-sm">
+        <i class="bi bi-plus-circle"></i> Add Machine
+    </a>
+    {% endif %}
+</div>
+
+<div class="card">
+    <div class="card-body p-0">
+        {% if machines %}
+        <table class="table table-hover mb-0">
+            <thead>
+                <tr>
+                    <th>Hostname</th><th>OS</th><th>Connection</th>
+                    <th>Description</th><th>Status</th><th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for m in machines %}
+                <tr>
+                    <td><strong>{{ m.hostname }}</strong></td>
+                    <td>{{ m.os_type.title() }}</td>
+                    <td><span class="badge bg-secondary">{{ m.connection_type.upper() }}</span></td>
+                    <td class="text-muted small">{{ m.description or '—' }}</td>
+                    <td>
+                        <span class="badge {% if m.status == 'online' %}bg-success{% elif m.status == 'offline' %}bg-danger{% else %}bg-secondary{% endif %}"
+                              id="status-{{ m.machine_id }}">
+                            {{ m.status }}
+                        </span>
+                    </td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-secondary me-1"
+                                onclick="testConn('{{ m.machine_id }}')">
+                            <i class="bi bi-wifi"></i>
+                        </button>
+                        <a href="{{ url_for('disks.scan_remote', machine_id=m.machine_id) }}"
+                           class="btn btn-sm btn-outline-primary me-1">
+                            <i class="bi bi-search"></i> Scan
+                        </a>
+                        {% if current_user.can('manage_machines') %}
+                        <form method="POST"
+                              action="{{ url_for('machines.delete', machine_id=m.machine_id) }}"
+                              style="display:inline"
+                              onsubmit="return confirm('Remove this machine?')">
+                            <button type="submit" class="btn btn-sm btn-outline-danger">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </form>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="text-center text-muted py-5">
+            <i class="bi bi-pc-display" style="font-size:3rem"></i>
+            <p class="mt-3">No machines registered.</p>
+            <a href="{{ url_for('machines.add') }}" class="btn btn-outline-secondary btn-sm">Add Machine</a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+{% block extra_js %}
+<script>
+function testConn(machineId) {
+    const badge = document.getElementById("status-" + machineId);
+    badge.textContent = "testing...";
+    badge.className = "badge bg-warning";
+    fetch("/machines/test/" + machineId)
+        .then(r => r.json())
+        .then(data => {
+            badge.textContent = data.status;
+            badge.className = "badge " + (data.status === "online" ? "bg-success" : "bg-danger");
+        });
+}
+</script>
+{% endblock %}
+{% endblock %}

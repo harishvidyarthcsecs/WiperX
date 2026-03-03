@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Confirm Wipe{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-7">
+        <!-- Warning Header -->
+        <div class="text-center mb-4">
+            <div style="font-size:4rem; color:#e74c3c; animation: pulse 1.5s infinite">
+                <i class="bi bi-exclamation-triangle-fill"></i>
+            </div>
+            <h2 style="color:#e74c3c; font-weight:800; letter-spacing:2px">WIPE CONFIRMATION</h2>
+            <p class="text-muted">This action is <strong>PERMANENT</strong> and <strong>IRREVERSIBLE</strong></p>
+        </div>
+
+        <!-- Wipe Target Info -->
+        <div class="card mb-4 wipe-warning-box">
+            <div class="p-3">
+                <table class="table table-sm mb-0" style="color: inherit">
+                    <tr>
+                        <td class="text-muted" width="35%">Target Machine</td>
+                        <td><strong>{{ target_label }}</strong></td>
+                    </tr>
+                    <tr>
+                        <td class="text-muted">Disk Identifier</td>
+                        <td><code style="color:#e74c3c; font-size:1.1rem">{{ disk_id }}</code></td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+
+        <!-- Confirmation Form -->
+        <div class="card">
+            <div class="card-header"><strong>Double Confirmation Required</strong></div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('wipe.confirm') }}">
+                    <input type="hidden" name="disk_id" value="{{ disk_id }}">
+                    <input type="hidden" name="machine_id" value="{{ machine_id }}">
+
+                    <div class="mb-4">
+                        <label class="form-label">
+                            <strong>Step 1:</strong> Type the disk identifier
+                            <code style="color:#e74c3c">{{ disk_id }}</code> manually:
+                        </label>
+                        <input type="text" name="confirm_name" class="form-control"
+                               placeholder="Type disk name here..."
+                               autocomplete="off" required>
+                        <div class="form-text text-muted">
+                            This prevents accidental wiping of the wrong disk.
+                        </div>
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="form-label">
+                            <strong>Step 2:</strong> Type <code style="color:#e74c3c">WIPE</code>
+                            to confirm permanent data destruction:
+                        </label>
+                        <input type="text" name="second_confirm" class="form-control"
+                               placeholder="Type WIPE to confirm..."
+                               autocomplete="off" required>
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="form-label"><strong>Operator Name</strong> (for audit report):</label>
+                        <input type="text" name="operator" class="form-control"
+                               value="{{ current_user.display_name }}">
+                    </div>
+
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-danger btn-lg">
+                            <i class="bi bi-trash3-fill me-2"></i>INITIATE WIPE
+                        </button>
+                        <a href="{{ url_for('dashboard.index') }}" class="btn btn-outline-secondary">
+                            <i class="bi bi-x-circle me-2"></i>Cancel — Do Not Wipe
+                        </a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+</style>
+{% endblock %}

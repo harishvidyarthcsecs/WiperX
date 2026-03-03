@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block title %}Executing Wipe{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-9">
+        <div class="text-center mb-4">
+            <h3 style="color:#e74c3c; font-weight:700; letter-spacing:2px">
+                <i class="bi bi-trash3-fill"></i> WIPE IN PROGRESS
+            </h3>
+            <p class="text-muted">
+                Wiping <code>{{ pending.disk_id }}</code> — Do not close this window
+            </p>
+        </div>
+
+        <!-- Status indicator -->
+        <div id="status-bar" class="alert alert-info d-flex align-items-center mb-3">
+            <div class="spinner-border spinner-border-sm me-3" id="spinner"></div>
+            <span id="status-text">Initializing wipe operation...</span>
+        </div>
+
+        <!-- Live Log Panel -->
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <strong><i class="bi bi-terminal"></i> Live Operation Log</strong>
+                <button class="btn btn-sm btn-outline-secondary" onclick="toggleAutoScroll()">
+                    <i class="bi bi-arrow-down-circle" id="scroll-icon"></i> Auto-scroll
+                </button>
+            </div>
+            <div class="card-body p-0">
+                <div class="log-panel" id="log-panel"></div>
+            </div>
+        </div>
+
+        <!-- Result panel (hidden until done) -->
+        <div id="result-panel" class="mt-4" style="display:none">
+            <div id="result-success" class="alert alert-success" style="display:none">
+                <i class="bi bi-check-circle-fill me-2"></i>
+                <strong>Wipe completed successfully!</strong>
+            </div>
+            <div id="result-failed" class="alert alert-danger" style="display:none">
+                <i class="bi bi-x-circle-fill me-2"></i>
+                <strong>Wipe failed:</strong> <span id="error-text"></span>
+            </div>
+            <div id="report-links" class="mt-3" style="display:none">
+                <a id="json-report-link" href="#" class="btn btn-outline-primary me-2">
+                    <i class="bi bi-file-code me-2"></i>Download JSON Report
+                </a>
+                <a id="pdf-report-link" href="#" class="btn btn-outline-secondary me-2" style="display:none">
+                    <i class="bi bi-file-pdf me-2"></i>Download PDF Certificate
+                </a>
+                <a href="{{ url_for('dashboard.index') }}" class="btn btn-outline-light">
+                    <i class="bi bi-house me-2"></i>Return to Dashboard
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% block extra_js %}
+<script>
+let autoScroll = true;
+const logPanel = document.getElementById("log-panel");
+const statusText = document.getElementById("status-text");
+const statusBar = document.getElementById("status-bar");
+
+function toggleAutoScroll() {
+    autoScroll = !autoScroll;
+    document.getElementById("scroll-icon").className =
+        autoScroll ? "bi bi-arrow-down-circle-fill" : "bi bi-arrow-down-circle";
+}
+
+function appendLog(msg) {
+    const p = document.createElement("p");
+    p.className = "log-line";
+    if (msg.includes("ERROR") || msg.includes("BLOCK") || msg.includes("FAIL")) {
+        p.classList.add("log-error");
+    } else if (msg.includes("WARNING") || msg.includes("Safety")) {
+        p.classList.add("log-warning");
+    } else if (msg.includes("PASSED") || msg.includes("complete") || msg.includes("SUCCESS")) {
+        p.classList.add("log-success");
+    } else {
+        p.classList.add("log-info");
+    }
+    p.textContent = msg;
+    logPanel.appendChild(p);
+    if (autoScroll) logPanel.scrollTop = logPanel.scrollHeight;
+}
+
+// Start the wipe
+fetch("{{ url_for('wipe.run_wipe') }}", { method: "POST" })
+    .then(r => r.json())
+    .then(data => {
+        if (data.status === "started") {
+            // Start SSE stream
+            const es = new EventSource("{{ url_for('wipe.stream_logs', session_id=current_user.id) }}");
+
+            es.onmessage = function(e) {
+                const item = JSON.parse(e.data);
+
+                if (item.type === "log") {
+                    appendLog(item.message);
+                    statusText.textContent = item.message.substring(0, 80) + "...";
+                } else if (item.type === "done") {
+                    es.close();
+                    document.getElementById("spinner").style.display = "none";
+                    document.getElementById("result-panel").style.display = "block";
+
+                    if (item.success) {
+                        statusBar.className = "alert alert-success d-flex align-items-center mb-3";
+                        statusText.textContent = "Wipe completed successfully!";
+                        document.getElementById("result-success").style.display = "block";
+                    } else {
+                        statusBar.className = "alert alert-danger d-flex align-items-center mb-3";
+                        statusText.textContent = "Wipe failed.";
+                        document.getElementById("result-failed").style.display = "block";
+                        document.getElementById("error-text").textContent = item.error || "Unknown error";
+                    }
+
+                    // Show report download links
+                    const reportLinks = document.getElementById("report-links");
+                    reportLinks.style.display = "block";
+
+                    if (item.json_report) {
+                        const fname = item.json_report.split("/").pop();
+                        document.getElementById("json-report-link").href =
+                            "/reports/download/" + fname;
+                    }
+                    if (item.pdf_report) {
+                        const plink = document.getElementById("pdf-report-link");
+                        const fname = item.pdf_report.split("/").pop();
+                        plink.href = "/reports/download/" + fname;
+                        plink.style.display = "inline-block";
+                    }
+                } else if (item.type === "heartbeat") {
+                    appendLog("[heartbeat] Wipe in progress...");
+                }
+            };
+
+            es.onerror = function() {
+                appendLog("[ERROR] SSE connection lost.");
+                es.close();
+            };
+        }
+    });
+</script>
+{% endblock %}
+{% endblock %}
