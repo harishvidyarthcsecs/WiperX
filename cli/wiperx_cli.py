@@ -111,8 +111,11 @@ def scan(mode, host, ssh_user, ssh_key, ssh_port, use_winrm, winrm_user, winrm_p
 @click.option("--winrm-user", default=None, help="WinRM username.")
 @click.option("--winrm-port", default=5986, show_default=True, help="WinRM port.")
 @click.option("--method", default="auto", show_default=True,
-              type=click.Choice(["auto", "shred", "dd", "nvme", "diskpart"]),
-              help="Wipe method override. 'auto' selects based on disk type.")
+              type=click.Choice(["auto", "clear", "zero", "random", "dod", "dod-3",
+                                 "dod-7", "gutmann", "nist-purge"]),
+              help="Wipe method. 'auto' uses each disk's native command; the "
+                   "others run an explicit overwrite pass sequence "
+                   "(see 'wiperx info').")
 @click.option("--report-pdf", is_flag=True, help="Generate PDF certificate after wipe.")
 @click.option("--operator", default=None, help="Operator name for report.")
 def wipe(disk_identifier, mode, host, ssh_user, ssh_key, ssh_port,
@@ -211,6 +214,11 @@ def wipe(disk_identifier, mode, host, ssh_user, ssh_key, ssh_port,
         json_path = reporter.generate_json_report(result, operator=operator)
         click.echo(f"{Fore.CYAN}JSON Report: {json_path}{Style.RESET_ALL}")
 
+        cert_path = reporter.generate_signed_json_report(result, operator=operator)
+        if cert_path:
+            click.echo(f"{Fore.CYAN}Signed Certificate: {cert_path}{Style.RESET_ALL}")
+            click.echo(f"{Fore.CYAN}  Verify with: wiperx verify-report {cert_path}{Style.RESET_ALL}")
+
         if report_pdf:
             pdf_path = reporter.generate_pdf_report(result, operator=operator)
             if pdf_path:
@@ -221,6 +229,175 @@ def wipe(disk_identifier, mode, host, ssh_user, ssh_key, ssh_port,
     except Exception as e:
         click.echo(f"{Fore.RED}FATAL ERROR: {e}{Style.RESET_ALL}", err=True)
         sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
+# Secure File & Folder Eraser (Module 2)
+# ---------------------------------------------------------------------------
+
+def _erase_live_log(msg):
+    text = msg if isinstance(msg, str) else getattr(msg, "path", repr(msg))
+    color = (
+        Fore.RED if "ERROR" in text or "fail" in text.lower()
+        else Fore.GREEN if "complete" in text.lower() or "ok" in text.lower()
+        else Fore.WHITE
+    )
+    click.echo(f"{color}{text}{Style.RESET_ALL}")
+
+
+def _print_erase_result(res):
+    summary = res.get("summary", {})
+    click.echo(f"\n{'='*60}")
+    click.echo(f"{Fore.CYAN}  Secure Erase Summary{Style.RESET_ALL}")
+    click.echo(f"{'='*60}")
+    for key in ("total", "succeeded", "failed", "bytes_erased", "duration_s"):
+        if key in summary:
+            click.echo(f"  {key:<14}: {summary[key]}")
+    fsw = res.get("free_space_wipe")
+    if fsw:
+        click.echo(f"  free-space    : ok={fsw.get('ok')} "
+                   f"bytes={fsw.get('bytes_written')}")
+    signed = res.get("certificate_signed")
+    tag = f"{Fore.GREEN}signed{Style.RESET_ALL}" if signed else f"{Fore.YELLOW}UNSIGNED{Style.RESET_ALL}"
+    click.echo(f"  certificate  : {res.get('certificate_path')} ({tag})")
+    click.echo(f"{'='*60}\n")
+
+
+@cli.command("erase-file")
+@click.argument("paths", nargs=-1, required=True, type=click.Path(exists=True))
+@click.option("--passes", default=1, show_default=True, help="Random overwrite passes.")
+@click.option("--no-zero", is_flag=True, help="Skip the trailing zero pass.")
+@click.option("--rename-rounds", default=3, show_default=True, help="Random renames before unlink.")
+@click.option("--workers", default=4, show_default=True, help="Parallel worker threads.")
+@click.option("--operator", default=None, help="Operator name for the certificate.")
+@click.option("--yes", is_flag=True, help="Skip the confirmation prompt.")
+def erase_file(paths, passes, no_zero, rename_rounds, workers, operator, yes):
+    """Securely erase one or more FILES (no directory recursion)."""
+    print_banner()
+    from core.eraser_file import service
+
+    if not service.shredder_available():
+        click.echo(f"{Fore.RED}file_shredder/batch not implemented yet "
+                   f"(Codex Phase 1 deliverable).{Style.RESET_ALL}", err=True)
+        sys.exit(2)
+
+    click.echo(f"{Fore.RED}This permanently destroys the contents of:{Style.RESET_ALL}")
+    for p in paths:
+        click.echo(f"  {p}")
+    if not yes and not click.confirm("\nProceed with secure erase?", default=False):
+        click.echo("Aborted.")
+        sys.exit(0)
+
+    operator = operator or getpass.getuser()
+    try:
+        res = service.erase_paths(
+            list(paths), recursive=False, passes=passes, zero_final=not no_zero,
+            rename_rounds=rename_rounds, workers=workers, operator=operator,
+            log_callback=_erase_live_log,
+        )
+    except Exception as exc:  # noqa: BLE001 - surface any failure to the operator
+        click.echo(f"{Fore.RED}FATAL: {exc}{Style.RESET_ALL}", err=True)
+        sys.exit(1)
+    _print_erase_result(res)
+    sys.exit(0 if res["summary"].get("failed", 1) == 0 else 1)
+
+
+@cli.command("erase-folder")
+@click.argument("folders", nargs=-1, required=True, type=click.Path(exists=True, file_okay=False))
+@click.option("--passes", default=1, show_default=True, help="Random overwrite passes.")
+@click.option("--no-zero", is_flag=True, help="Skip the trailing zero pass.")
+@click.option("--rename-rounds", default=3, show_default=True, help="Random renames before unlink.")
+@click.option("--workers", default=4, show_default=True, help="Parallel worker threads.")
+@click.option("--wipe-free", "wipe_free_mount", default=None,
+              help="After erasing, also fill free space on this mount point.")
+@click.option("--fstrim", "fstrim_after", is_flag=True, help="Run fstrim after --wipe-free.")
+@click.option("--operator", default=None, help="Operator name for the certificate.")
+@click.option("--yes", is_flag=True, help="Skip the confirmation prompt.")
+def erase_folder(folders, passes, no_zero, rename_rounds, workers,
+                 wipe_free_mount, fstrim_after, operator, yes):
+    """Recursively erase FOLDERS and remove the emptied directory tree."""
+    print_banner()
+    from core.eraser_file import service
+
+    if not service.shredder_available():
+        click.echo(f"{Fore.RED}file_shredder/batch not implemented yet "
+                   f"(Codex Phase 1 deliverable).{Style.RESET_ALL}", err=True)
+        sys.exit(2)
+
+    click.echo(f"{Fore.RED}This permanently destroys every file under:{Style.RESET_ALL}")
+    for f in folders:
+        click.echo(f"  {f}")
+    if not yes and not click.confirm("\nProceed with recursive secure erase?", default=False):
+        click.echo("Aborted.")
+        sys.exit(0)
+
+    operator = operator or getpass.getuser()
+    try:
+        res = service.erase_paths(
+            list(folders), recursive=True, passes=passes, zero_final=not no_zero,
+            rename_rounds=rename_rounds, workers=workers, operator=operator,
+            wipe_free_mount=wipe_free_mount, fstrim_after=fstrim_after,
+            log_callback=_erase_live_log,
+        )
+    except Exception as exc:  # noqa: BLE001
+        click.echo(f"{Fore.RED}FATAL: {exc}{Style.RESET_ALL}", err=True)
+        sys.exit(1)
+    _print_erase_result(res)
+    sys.exit(0 if res["summary"].get("failed", 1) == 0 else 1)
+
+
+@cli.command("wipe-free")
+@click.argument("mount_point", type=click.Path(exists=True))
+@click.option("--passes", default=1, show_default=True, help="Random fill passes.")
+@click.option("--no-zero", is_flag=True, help="Skip the trailing zero pass.")
+@click.option("--fstrim", "fstrim_after", is_flag=True, help="Run fstrim afterwards (SSD).")
+@click.option("--operator", default=None, help="Operator name for the certificate.")
+@click.option("--yes", is_flag=True, help="Skip the confirmation prompt.")
+def wipe_free(mount_point, passes, no_zero, fstrim_after, operator, yes):
+    """Overwrite ALL free space on the filesystem hosting MOUNT_POINT.
+
+    Destroys the block contents of files previously deleted with a plain
+    delete. Temporarily consumes all free space on the target filesystem.
+    """
+    print_banner()
+    from core.eraser_file import service
+
+    click.echo(f"{Fore.YELLOW}This fills all free space on the filesystem at "
+               f"'{mount_point}' (temporary near-full condition).{Style.RESET_ALL}")
+    if not yes and not click.confirm("Proceed?", default=False):
+        click.echo("Aborted.")
+        sys.exit(0)
+
+    operator = operator or getpass.getuser()
+    res = service.wipe_free_space_only(
+        mount_point, passes=passes, zero_final=not no_zero,
+        fstrim_after=fstrim_after, operator=operator, log_callback=_erase_live_log,
+    )
+    fsw = res["free_space_wipe"]
+    ok = fsw.get("ok")
+    color = Fore.GREEN if ok else Fore.RED
+    click.echo(f"\n{color}free-space wipe ok={ok} "
+               f"bytes={fsw.get('bytes_written')} err={fsw.get('error')}{Style.RESET_ALL}")
+    click.echo(f"{Fore.CYAN}Certificate: {res['certificate_path']} "
+               f"(signed={res['certificate_signed']}){Style.RESET_ALL}")
+    sys.exit(0 if ok else 1)
+
+
+@cli.command("verify-report")
+@click.argument("report_path", type=click.Path(exists=True))
+def verify_report(report_path):
+    """Verify the Ed25519 signature on a WiperX report / certificate."""
+    from core import report_signer
+
+    res = report_signer.verify_file(report_path)
+    ok = res.get("valid")
+    color = Fore.GREEN if ok else Fore.RED
+    click.echo(f"{color}{'VALID' if ok else 'INVALID'}{Style.RESET_ALL}  {report_path}")
+    click.echo(f"  key_id   : {res.get('key_id')}")
+    click.echo(f"  signed_at: {res.get('signed_at')}")
+    click.echo(f"  trusted  : {res.get('trusted')}")
+    click.echo(f"  reason   : {res.get('reason')}")
+    sys.exit(0 if ok else 1)
 
 
 # ---------------------------------------------------------------------------
@@ -248,6 +425,19 @@ def info():
         strategies,
         headers=["Strategy", "Command", "Target", "Standard"],
         tablefmt="rounded_outline"
+    ))
+
+    click.echo("\nWipe Methods (--method):")
+    from core.wipe_passes import describe, methods, pass_spec
+    rows = [["auto", "native per-disk command (shred / blkdiscard / nvme / dd / diskpart)", "-"]]
+    for m in methods():
+        if m == "auto":
+            continue
+        rows.append([m, describe(m), len(pass_spec(m))])
+    click.echo(tabulate(
+        rows,
+        headers=["Method", "Description", "Passes"],
+        tablefmt="rounded_outline",
     ))
 
 

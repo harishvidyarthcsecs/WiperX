@@ -153,8 +153,10 @@ def run_wipe():
         # Generate reports
         from core.report_generator import ReportGenerator
         reporter = ReportGenerator()
-        json_path = reporter.generate_json_report(result, operator=pending.get("operator", "web"))
-        pdf_path = reporter.generate_pdf_report(result, operator=pending.get("operator", "web"))
+        operator = pending.get("operator", "web")
+        json_path = reporter.generate_json_report(result, operator=operator)
+        pdf_path = reporter.generate_pdf_report(result, operator=operator)
+        cert_path = reporter.generate_signed_json_report(result, operator=operator)
 
         log_queue.put({
             "type": "done",
@@ -162,6 +164,7 @@ def run_wipe():
             "error": result.error,
             "json_report": str(json_path),
             "pdf_report": str(pdf_path) if pdf_path else None,
+            "signed_certificate": str(cert_path) if cert_path else None,
         })
 
     thread = threading.Thread(target=run_in_thread, daemon=True)

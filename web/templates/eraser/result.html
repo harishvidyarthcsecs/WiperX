@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Erase Result{% endblock %}
+
+{% block content %}
+<h3 class="mb-3"><i class="bi bi-eraser-fill"></i> Erase Result</h3>
+
+{% set s = result.summary %}
+<div class="row g-3 mb-4">
+  <div class="col-md-3"><div class="card stat-card p-3">
+    <div class="text-muted small">Files</div><div class="h4">{{ s.total if s.total is defined else '-' }}</div></div></div>
+  <div class="col-md-3"><div class="card stat-card p-3">
+    <div class="text-muted small">Succeeded</div><div class="h4 log-success">{{ s.succeeded if s.succeeded is defined else '-' }}</div></div></div>
+  <div class="col-md-3"><div class="card stat-card p-3">
+    <div class="text-muted small">Failed</div><div class="h4 {% if s.failed %}log-error{% endif %}">{{ s.failed if s.failed is defined else '-' }}</div></div></div>
+  <div class="col-md-3"><div class="card stat-card p-3">
+    <div class="text-muted small">Bytes erased</div><div class="h4">{{ s.bytes_erased if s.bytes_erased is defined else '-' }}</div></div></div>
+</div>
+
+<div class="card p-3 mb-4">
+  <div class="d-flex justify-content-between align-items-center">
+    <div>
+      <div class="text-muted small">Signed certificate</div>
+      <code>{{ cert_name }}</code>
+      <span class="badge ms-2 {% if result.certificate_signed %}badge-ok{% else %}badge-mounted{% endif %}">
+        {{ 'SIGNED' if result.certificate_signed else 'UNSIGNED' }}
+      </span>
+    </div>
+    <a class="btn btn-outline-danger btn-sm" href="{{ url_for('reports.index') }}">
+      <i class="bi bi-file-earmark-text"></i> Reports
+    </a>
+  </div>
+</div>
+
+{% if result.free_space_wipe %}
+<div class="card p-3 mb-4">
+  <div class="text-muted small">Free-space wipe</div>
+  ok={{ result.free_space_wipe.ok }},
+  bytes={{ result.free_space_wipe.bytes_written }},
+  err={{ result.free_space_wipe.error }}
+</div>
+{% endif %}
+
+<h5>Log</h5>
+<div class="log-panel mb-4">
+  {% for line in log_lines %}<p class="log-line">{{ line }}</p>{% else %}<p class="log-line text-muted">(no log lines)</p>{% endfor %}
+</div>
+
+{% if result.files %}
+<h5>Per-file</h5>
+<div class="table-responsive">
+<table class="table table-sm">
+  <thead><tr><th>Path</th><th>Bytes</th><th>Method</th><th>Passes</th><th>Renames</th><th>OK</th><th>Error</th></tr></thead>
+  <tbody>
+  {% for f in result.files %}
+    <tr>
+      <td><code>{{ f.path }}</code></td>
+      <td>{{ f.size_bytes }}</td>
+      <td>{{ f.method }}</td>
+      <td>{{ f.passes }}</td>
+      <td>{{ f.renames }}</td>
+      <td>{% if f.ok %}<span class="log-success">yes</span>{% else %}<span class="log-error">no</span>{% endif %}</td>
+      <td class="small text-muted">{{ f.error or '' }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+
+<a href="{{ url_for('eraser.index') }}" class="btn btn-secondary">
+  <i class="bi bi-arrow-left"></i> New erase
+</a>
+{% endblock %}

@@ -30,6 +30,18 @@ bcrypt==4.1.2            # Password hashing
 # Logging & Monitoring
 python-json-logger==2.0.7  # Structured JSON logging
 
+# Module 3 — Forensic Carving & Recovery
+pytsk3==20240220           # The Sleuth Kit bindings: filesystem walk + undelete
+python-magic==0.4.27       # libmagic content classification (needs libmagic system pkg)
+Pillow==10.3.0             # image validator (JPEG/PNG structural verify)
+pypdf==4.2.0               # PDF validator / structural parse
+mutagen==1.47.0            # audio/video container validator
+# libewf-python            # OPTIONAL: E01 evidence image support (install from distro pkg)
+
+# System packages (install separately, NOT via pip):
+#   Linux:  apt install sleuthkit testdisk libmagic1 nvme-cli hdparm util-linux
+#   macOS:  brew install sleuthkit libmagic   (dev host only; runtime target is Linux)
+
 # Testing
 pytest==8.1.1
 pytest-mock==3.12.0

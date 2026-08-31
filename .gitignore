@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+
+# WiperX runtime output
+reports/
+logs/
+cases/
+keys/
+*.pdf
+
+# Disk images / demo artefacts
+*.dd
+*.img
+*.raw
+*.E01
+demo_mnt/
+
+# Signing keys (never commit)
+*.pem
+*.key
+wiperx_sign_key*
+
+# Tooling
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store

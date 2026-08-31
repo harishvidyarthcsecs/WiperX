@@ -216,3 +216,75 @@ class TestLocalExecutor:
         from core.executors import LocalExecutor
         executor = LocalExecutor()
         assert executor.test_connection() is True
+
+
+# ---------------------------------------------------------------------------
+# Method routing (Phase 2)
+# ---------------------------------------------------------------------------
+
+class TestWipeMethodRouting:
+    def _run(self, method):
+        from unittest.mock import MagicMock, patch
+
+        from core.execution_manager import (
+            ExecutionManager, ExecutionMode, WipeRequest,
+        )
+        from core.disk_scanner import DiskInfo
+        from core.os_detector import OSType
+
+        manager = ExecutionManager()
+        disk = DiskInfo(identifier="sdb", is_system=False, is_mounted=False)
+        disk.size_bytes = 64 * 1024 * 1024
+        disk.bus_type = "USB"
+
+        captured = {}
+
+        def fake_execute(**kwargs):
+            captured["passes"] = kwargs.get("passes")
+            return True
+
+        with patch.object(manager, "_build_executor_and_detect_os") as mock_build, \
+             patch("core.execution_manager.DiskScanner") as mock_scanner_cls, \
+             patch.object(manager, "_check_privileges"), \
+             patch("core.execution_manager.get_strategy") as mock_get_strategy, \
+             patch("core.verifier.WipeVerifier.verify", return_value={"verified": True}):
+
+            mock_executor = MagicMock()
+            mock_build.return_value = (mock_executor, OSType.LINUX)
+            mock_scanner = MagicMock()
+            mock_scanner.scan.return_value = [disk]
+            mock_scanner_cls.return_value = mock_scanner
+
+            strat = MagicMock()
+            strat.name = "MockStrategy"
+            strat.execute.side_effect = fake_execute
+            mock_get_strategy.return_value = strat
+
+            request = WipeRequest(
+                disk_identifier="sdb", confirmed_disk_name="sdb",
+                mode=ExecutionMode.LOCAL, method=method,
+            )
+            result = manager.execute_wipe(request)
+        return result, captured.get("passes")
+
+    def test_auto_passes_none(self):
+        result, passes = self._run("auto")
+        assert result.success is True
+        assert passes is None
+        assert result.method == "auto"
+        assert result.pass_count == 0
+
+    def test_dod_builds_three_pass_list(self):
+        result, passes = self._run("dod")
+        assert passes is not None and len(passes) == 3
+        assert result.method == "dod"
+        assert result.pass_count == 3
+
+    def test_gutmann_builds_35_pass_list(self):
+        _result, passes = self._run("gutmann")
+        assert passes is not None and len(passes) == 35
+
+    def test_unknown_method_falls_back_to_auto(self):
+        result, passes = self._run("bogus-method")
+        assert passes is None
+        assert result.method == "auto"

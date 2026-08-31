@@ -35,26 +35,37 @@ class ReportGenerator:
     Generates JSON and PDF wipe reports after a wipe operation completes.
     """
 
-    def generate_json_report(
+    def build_report_dict(
         self,
         wipe_result,
         verification_result: Optional[dict] = None,
         operator: str = "System",
-    ) -> Path:
+    ) -> dict:
         """
-        Generate a JSON wipe report.
+        Assemble the machine-readable wipe report dict (pre-signature).
 
         Args:
             wipe_result         : WipeResult dataclass from ExecutionManager.
-            verification_result : Optional dict from WipeVerifier.
+            verification_result : Optional dict from WipeVerifier. Falls back to
+                                  wipe_result.verification, then a "not performed"
+                                  stub.
             operator            : Name of the person/system that initiated the wipe.
 
         Returns:
-            Path: Path to the generated JSON report file.
+            dict
         """
-        report_data = {
+        verification = (
+            verification_result
+            or getattr(wipe_result, "verification", None)
+            or {
+                "verified": None,
+                "method": "none",
+                "details": "Verification not performed.",
+            }
+        )
+        return {
             "wiperx_report": {
-                "schema_version": "1.0",
+                "schema_version": "1.1",
                 "generated_at": datetime.utcnow().isoformat() + "Z",
                 "operator": operator,
             },
@@ -72,13 +83,11 @@ class ReportGenerator:
             },
             "wipe": {
                 "strategy_used": wipe_result.strategy_name,
+                "method": getattr(wipe_result, "method", "auto"),
+                "pass_count": getattr(wipe_result, "pass_count", 0),
                 "log_lines": wipe_result.log_lines,
             },
-            "verification": verification_result or {
-                "verified": None,
-                "method": "none",
-                "details": "Verification not performed.",
-            },
+            "verification": verification,
             "compliance": {
                 "standard": "NIST SP 800-88 Rev.1 (Guidelines for Media Sanitization)",
                 "note": (
@@ -88,17 +97,57 @@ class ReportGenerator:
             },
         }
 
-        # Sanitize filename
+    def generate_json_report(
+        self,
+        wipe_result,
+        verification_result: Optional[dict] = None,
+        operator: str = "System",
+    ) -> Path:
+        """
+        Generate a JSON wipe report (unsigned).
+
+        Returns:
+            Path: Path to the generated JSON report file.
+        """
+        report_data = self.build_report_dict(wipe_result, verification_result, operator)
+
         safe_ts = wipe_result.timestamp.replace(":", "-").replace(".", "-")
         safe_disk = wipe_result.disk_identifier.replace("/", "_")
-        filename = f"wipe_report_{safe_disk}_{safe_ts}.json"
-        report_path = REPORTS_DIR / filename
+        report_path = REPORTS_DIR / f"wipe_report_{safe_disk}_{safe_ts}.json"
 
         with open(report_path, "w", encoding="utf-8") as f:
             json.dump(report_data, f, indent=2)
 
         logger.info(f"[ReportGenerator] JSON report saved: {report_path}")
         return report_path
+
+    def generate_signed_json_report(
+        self,
+        wipe_result,
+        verification_result: Optional[dict] = None,
+        operator: str = "System",
+    ) -> Optional[Path]:
+        """
+        Generate an Ed25519-signed JSON wipe certificate.
+
+        Returns:
+            Path to the signed certificate, or None if signing is unavailable.
+        """
+        report_data = self.build_report_dict(wipe_result, verification_result, operator)
+
+        safe_ts = wipe_result.timestamp.replace(":", "-").replace(".", "-")
+        safe_disk = wipe_result.disk_identifier.replace("/", "_")
+        cert_path = REPORTS_DIR / f"wipe_cert_{safe_disk}_{safe_ts}.json"
+
+        try:
+            from core.report_signer import write_signed_json
+
+            write_signed_json(report_data, cert_path)
+            logger.info(f"[ReportGenerator] Signed certificate saved: {cert_path}")
+            return cert_path
+        except Exception as exc:  # noqa: BLE001 - signing is best-effort
+            logger.warning(f"[ReportGenerator] Could not sign certificate: {exc}")
+            return None
 
     def generate_pdf_report(
         self,

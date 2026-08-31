@@ -139,6 +139,12 @@
                         </a>
                     </li>
                     <li class="nav-item">
+                        <a class="nav-link {% if 'eraser' in request.endpoint %}active{% endif %}"
+                           href="{{ url_for('eraser.index') }}">
+                            <i class="bi bi-eraser"></i> File Eraser
+                        </a>
+                    </li>
+                    <li class="nav-item">
                         <a class="nav-link {% if 'reports' in request.endpoint %}active{% endif %}"
                            href="{{ url_for('reports.index') }}">
                             <i class="bi bi-file-earmark-text"></i> Reports

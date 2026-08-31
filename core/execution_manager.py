@@ -23,6 +23,9 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional, List, Callable, Dict, Any
 
+from core.disk_scanner import DiskScanner
+from core.strategies import get_strategy
+
 logger = logging.getLogger(__name__)
 
 
@@ -77,6 +80,9 @@ class WipeResult:
     error: Optional[str] = None
     disk_model: str = ""
     disk_serial: str = ""
+    method: str = "auto"          # requested wipe method (see core.wipe_passes)
+    pass_count: int = 0           # explicit overwrite passes run (0 = native default)
+    verification: Optional[dict] = None  # post-wipe WipeVerifier result
 
 
 class ExecutionManager:
@@ -119,7 +125,6 @@ class ExecutionManager:
         executor, os_type = self._build_executor_and_detect_os(mode, remote_config)
 
         try:
-            from core.disk_scanner import DiskScanner
             scanner = DiskScanner(executor=executor, os_type=os_type)
             return scanner.scan()
         finally:
@@ -143,7 +148,6 @@ class ExecutionManager:
             WipeResult: Outcome of the wipe operation.
         """
         import datetime
-        from core.strategies import get_strategy
 
         self._log_buffer = []
         timestamp = datetime.datetime.utcnow().isoformat() + "Z"
@@ -175,7 +179,6 @@ class ExecutionManager:
 
             # --- Resolve disk info ---
             _log(f"[DiskScan] Fetching disk info for: {request.disk_identifier}")
-            from core.disk_scanner import DiskScanner
             scanner = DiskScanner(executor=executor, os_type=os_type)
             all_disks = scanner.scan()
             target_disk = self._find_disk(all_disks, request.disk_identifier)
@@ -221,8 +224,26 @@ class ExecutionManager:
             _log("[Safety Check 4] PASSED: Disk is not mounted.")
 
             # Select strategy
-            strategy = get_strategy(disk=target_disk, os_type=os_type)
+            strategy = get_strategy(
+                disk=target_disk, os_type=os_type, method=request.method
+            )
             _log(f"[Strategy] Selected: {strategy.name} — {strategy.description}")
+
+            # Resolve the overwrite pass list. "auto" keeps each strategy's
+            # native single-shot command; any other method runs an explicit
+            # PassSpec sequence via strategy._run_passes.
+            method = (request.method or "auto").strip().lower()
+            pass_list = None
+            if method not in ("auto", ""):
+                from core.wipe_passes import describe, pass_spec
+
+                try:
+                    pass_list = pass_spec(method)
+                    _log(f"[Method] {method}: {describe(method)} "
+                         f"({len(pass_list)} pass(es))")
+                except ValueError as exc:
+                    _log(f"[Method] {exc}; falling back to native default.")
+                    method = "auto"
 
             # Execute wipe
             _log(">>> INITIATING WIPE — This is irreversible <<<")
@@ -230,10 +251,37 @@ class ExecutionManager:
                 disk=target_disk,
                 executor=executor,
                 log_callback=_log,
+                passes=pass_list,
             )
 
             hostname = self._get_target_hostname(request)
             _log(f">>> WIPE {'SUCCEEDED' if success else 'FAILED'} <<<")
+
+            # --- Post-wipe verification ---
+            verification = None
+            if success:
+                try:
+                    from core.verifier import WipeVerifier
+
+                    expected = "any"
+                    if pass_list:
+                        last = next(
+                            (p for p in reversed(pass_list) if p.kind != "verify"), None
+                        )
+                        if last is not None:
+                            if last.kind == "random":
+                                expected = "random"
+                            elif last.kind == "fixed" and last.byte == 0:
+                                expected = "zeroed"
+                    verification = WipeVerifier().verify(
+                        target_disk, executor, os_type,
+                        log_callback=_log, expected=expected,
+                    )
+                except Exception as exc:  # noqa: BLE001 - never fail the wipe on verify
+                    _log(f"[Verify] verification error: {exc}")
+                    verification = {
+                        "verified": None, "method": "error", "details": str(exc)
+                    }
 
             return WipeResult(
                 success=success,
@@ -245,6 +293,9 @@ class ExecutionManager:
                 log_lines=list(self._log_buffer),
                 disk_model=target_disk.model,
                 disk_serial=target_disk.serial,
+                method=method,
+                pass_count=len(pass_list) if pass_list else 0,
+                verification=verification,
             )
 
         except (PermissionError, ValueError) as e:

@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Secure File Eraser{% endblock %}
+
+{% block content %}
+<h3 class="mb-1"><i class="bi bi-eraser-fill"></i> Secure File &amp; Folder Eraser</h3>
+<p class="text-muted">Overwrite-based deletion mapped to NIST SP 800-88 &ldquo;Clear&rdquo;.
+Each file is overwritten, truncated, renamed several times, then unlinked.</p>
+
+<div class="wipe-warning-box mb-4">
+  <i class="bi bi-exclamation-triangle-fill text-danger"></i>
+  This <strong>permanently destroys</strong> the listed files. There is no undo.
+  {% if allowed_root %}
+  <div class="small mt-2">Allowed root on this server: <code>{{ allowed_root }}</code></div>
+  {% else %}
+  <div class="small mt-2 text-warning">No <code>WIPERX_ERASE_ALLOWED_ROOT</code> configured &mdash;
+    any server path may be targeted. Set it before exposing this UI.</div>
+  {% endif %}
+</div>
+
+<form method="POST" action="{{ url_for('eraser.run') }}" class="card p-4"
+      onsubmit="return confirm('Permanently erase the listed paths?');">
+  <div class="mb-3">
+    <label class="form-label">Paths (one per line &mdash; files or folders)</label>
+    <textarea name="paths" rows="6" class="form-control" placeholder="/data/case42/notes.txt&#10;/data/case42/photos"></textarea>
+  </div>
+
+  <div class="row g-3">
+    <div class="col-md-3">
+      <label class="form-label">Random passes</label>
+      <input type="number" name="passes" value="1" min="1" max="35" class="form-control">
+    </div>
+    <div class="col-md-3 d-flex align-items-end">
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" name="zero_final" id="zf" checked>
+        <label class="form-check-label" for="zf">Final zero pass</label>
+      </div>
+    </div>
+    <div class="col-md-3 d-flex align-items-end">
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" name="recursive" id="rc" checked>
+        <label class="form-check-label" for="rc">Recurse into folders</label>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <label class="form-label">Operator</label>
+      <input type="text" name="operator" class="form-control" value="{{ current_user.username }}">
+    </div>
+  </div>
+
+  <hr style="border-color: var(--wx-border);">
+
+  <div class="row g-3">
+    <div class="col-md-6">
+      <label class="form-label">Also wipe free space on mount (optional)</label>
+      <input type="text" name="wipe_free_mount" class="form-control" placeholder="/mnt/evidence">
+    </div>
+    <div class="col-md-3 d-flex align-items-end">
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" name="fstrim_after" id="ft">
+        <label class="form-check-label" for="ft">fstrim after (SSD)</label>
+      </div>
+    </div>
+  </div>
+
+  <button type="submit" class="btn btn-danger mt-4">
+    <i class="bi bi-eraser"></i> Erase &amp; issue certificate
+  </button>
+</form>
+{% endblock %}

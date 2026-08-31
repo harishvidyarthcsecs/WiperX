@@ -17,8 +17,9 @@ single `execute(disk, executor, log_callback)` method.
 """
 
 import logging
+import shlex
 from abc import ABC, abstractmethod
-from typing import Callable, Optional
+from typing import Callable, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,7 @@ class WipeStrategy(ABC):
         disk,
         executor,
         log_callback: Optional[Callable[[str], None]] = None,
+        passes: Optional[List] = None,
     ) -> bool:
         """
         Execute the wipe strategy on the given disk.
@@ -50,6 +52,10 @@ class WipeStrategy(ABC):
             disk         : DiskInfo object describing the target disk.
             executor     : Executor instance to run commands.
             log_callback : Optional callable to receive real-time log lines.
+            passes       : Optional list of core.wipe_passes.PassSpec. When
+                           given, the overwrite strategies run exactly this
+                           sequence of device-wide passes instead of their
+                           native single-shot command. None = native default.
 
         Returns:
             bool: True if wipe succeeded, False otherwise.
@@ -61,6 +67,93 @@ class WipeStrategy(ABC):
         logger.info(f"[{self.name}] {message}")
         if log_callback:
             log_callback(f"[{self.name}] {message}")
+
+    def _run_passes(self, device_path, executor, passes, log_callback=None) -> bool:
+        """
+        Run an explicit list of PassSpec overwrites across a whole block device.
+
+        Each pass is one `dd` sweep:
+          random     -> dd if=/dev/urandom
+          fixed 0x00 -> dd if=/dev/zero
+          fixed 0xNN -> tr '\\0' '\\NNN' < /dev/zero | dd
+          verify     -> skipped here (handled by the post-wipe verifier)
+
+        Args:
+            device_path  : e.g. /dev/sdb.
+            executor     : command executor.
+            passes       : list of core.wipe_passes.PassSpec.
+            log_callback : optional real-time log sink.
+
+        Returns:
+            bool: True if every write pass completed (ENOSPC on an unbounded
+            fill counts as success — the device is full).
+        """
+        quoted = shlex.quote(device_path)
+        bs_mib = 4
+        count_clause = ""
+        try:
+            size_out = executor.run_command(f"blockdev --getsize64 {quoted}", timeout=30)
+            total_bytes = int(str(size_out).strip().split()[0])
+            if total_bytes > 0:
+                unit = bs_mib * 1024 * 1024
+                blocks = (total_bytes + unit - 1) // unit
+                count_clause = f" count={blocks}"
+        except Exception as exc:  # noqa: BLE001 - size is an optimisation, not required
+            self._log(f"Could not read device size ({exc}); writing unbounded.", log_callback)
+
+        total = len(passes)
+        for index, spec in enumerate(passes, start=1):
+            kind = getattr(spec, "kind", "random")
+            byte = getattr(spec, "byte", None)
+
+            if kind == "verify":
+                self._log(
+                    f"Pass {index}/{total}: verify pass - deferred to post-wipe verifier",
+                    log_callback,
+                )
+                continue
+
+            if kind == "random":
+                cmd = (
+                    f"dd if=/dev/urandom of={quoted} bs={bs_mib}M{count_clause} "
+                    f"conv=fsync iflag=fullblock status=none"
+                )
+                label = "random"
+            elif byte == 0:
+                cmd = (
+                    f"dd if=/dev/zero of={quoted} bs={bs_mib}M{count_clause} "
+                    f"conv=fsync status=none"
+                )
+                label = "0x00"
+            else:
+                octal = format(int(byte), "03o")
+                cmd = (
+                    f"tr '\\0' '\\{octal}' < /dev/zero | "
+                    f"dd of={quoted} bs={bs_mib}M{count_clause} "
+                    f"conv=fsync iflag=fullblock status=none"
+                )
+                label = f"0x{int(byte):02x}"
+
+            self._log(f"Pass {index}/{total} ({label}): {cmd}", log_callback)
+            try:
+                out = executor.run_command(cmd, timeout=14400)
+                self._log(
+                    f"Pass {index}/{total} ({label}) complete. {str(out).strip()[:200]}",
+                    log_callback,
+                )
+            except Exception as exc:  # noqa: BLE001 - inspect and decide
+                if "No space left on device" in str(exc):
+                    self._log(
+                        f"Pass {index}/{total} ({label}) filled the device "
+                        "(ENOSPC on unbounded fill = expected).",
+                        log_callback,
+                    )
+                    continue
+                self._log(f"ERROR: pass {index}/{total} ({label}) failed: {exc}", log_callback)
+                return False
+
+        self._log(f"All {total} pass(es) complete on {device_path}", log_callback)
+        return True
 
 
 # ---------------------------------------------------------------------------
@@ -82,10 +175,17 @@ class LinuxHDDWipeStrategy(WipeStrategy):
     name = "LinuxHDD-Shred"
     description = "1-pass random + zero overwrite using GNU shred (HDD)"
 
-    def execute(self, disk, executor, log_callback=None) -> bool:
+    def execute(self, disk, executor, log_callback=None, passes=None) -> bool:
         device_path = f"/dev/{disk.identifier}"
-        cmd = f"shred -v -n 1 -z {device_path}"
 
+        if passes:
+            self._log(
+                f"Multi-pass overwrite ({len(passes)} pass(es)) on {device_path}",
+                log_callback,
+            )
+            return self._run_passes(device_path, executor, passes, log_callback)
+
+        cmd = f"shred -v -n 1 -z {device_path}"
         self._log(f"Starting shred on {device_path}", log_callback)
         self._log(f"Command: {cmd}", log_callback)
 
@@ -119,11 +219,10 @@ class LinuxSSDWipeStrategy(WipeStrategy):
     name = "LinuxSSD-BlkDiscard"
     description = "Block discard + zero pass for SATA SSDs"
 
-    def execute(self, disk, executor, log_callback=None) -> bool:
+    def execute(self, disk, executor, log_callback=None, passes=None) -> bool:
         device_path = f"/dev/{disk.identifier}"
-        success = True
 
-        # Step 1: blkdiscard
+        # Step 1: blkdiscard (TRIM hint — always, harmless if unsupported)
         cmd_discard = f"blkdiscard {device_path}"
         self._log(f"Step 1: blkdiscard on {device_path}", log_callback)
         self._log(f"Command: {cmd_discard}", log_callback)
@@ -132,9 +231,16 @@ class LinuxSSDWipeStrategy(WipeStrategy):
             self._log(f"blkdiscard output: {out}", log_callback)
         except Exception as e:
             self._log(f"WARNING: blkdiscard failed (non-fatal): {e}", log_callback)
-            # blkdiscard may not be supported on all SSDs; continue to dd pass
+            # blkdiscard may not be supported on all SSDs; continue to overwrite
 
-        # Step 2: zero pass
+        # Step 2: overwrite pass(es)
+        if passes:
+            self._log(
+                f"Step 2: multi-pass overwrite ({len(passes)} pass(es)) on {device_path}",
+                log_callback,
+            )
+            return self._run_passes(device_path, executor, passes, log_callback)
+
         cmd_dd = f"dd if=/dev/zero of={device_path} bs=4M status=progress conv=fsync"
         self._log(f"Step 2: dd zero pass on {device_path}", log_callback)
         self._log(f"Command: {cmd_dd}", log_callback)
@@ -142,11 +248,10 @@ class LinuxSSDWipeStrategy(WipeStrategy):
             out = executor.run_command(cmd_dd, timeout=7200)
             self._log(f"dd output: {out}", log_callback)
             self._log(f"Wipe complete on {device_path}", log_callback)
+            return True
         except Exception as e:
             self._log(f"ERROR: dd zero pass failed: {e}", log_callback)
-            success = False
-
-        return success
+            return False
 
 
 # ---------------------------------------------------------------------------
@@ -168,12 +273,20 @@ class LinuxNVMeWipeStrategy(WipeStrategy):
     name = "LinuxNVMe-Format"
     description = "NVMe controller User Data Erase via nvme-cli (NVMe SSD)"
 
-    def execute(self, disk, executor, log_callback=None) -> bool:
+    def execute(self, disk, executor, log_callback=None, passes=None) -> bool:
+        if passes and len(passes) > 1:
+            self._log(
+                f"NOTE: 'nvme format --ses=1' is a single-shot controller "
+                f"cryptographic erase; the requested {len(passes)}-pass overwrite "
+                "pattern does not apply and is recorded for the report only.",
+                log_callback,
+            )
+
         # NVMe device paths: /dev/nvme0n1, /dev/nvme1n1, etc.
         # The identifier may be "nvme0n1" or "nvme0" — normalize it
         identifier = disk.identifier
         if not identifier.startswith("nvme"):
-            identifier = f"nvme0n1"  # fallback
+            identifier = "nvme0n1"  # fallback
 
         device_path = f"/dev/{identifier}"
         cmd = f"nvme format {device_path} --ses=1 --force"
@@ -212,10 +325,17 @@ class LinuxUSBWipeStrategy(WipeStrategy):
     name = "LinuxUSB-DD"
     description = "Full zero overwrite via dd (USB drives)"
 
-    def execute(self, disk, executor, log_callback=None) -> bool:
+    def execute(self, disk, executor, log_callback=None, passes=None) -> bool:
         device_path = f"/dev/{disk.identifier}"
-        cmd = f"dd if=/dev/zero of={device_path} bs=1M status=progress conv=fsync"
 
+        if passes:
+            self._log(
+                f"Multi-pass overwrite ({len(passes)} pass(es)) on {device_path}",
+                log_callback,
+            )
+            return self._run_passes(device_path, executor, passes, log_callback)
+
+        cmd = f"dd if=/dev/zero of={device_path} bs=1M status=progress conv=fsync"
         self._log(f"Starting USB wipe via dd on {device_path}", log_callback)
         self._log(f"Command: {cmd}", log_callback)
 
@@ -255,8 +375,16 @@ class WindowsWipeStrategy(WipeStrategy):
     name = "Windows-DiskPart"
     description = "diskpart clean all (Windows disks)"
 
-    def execute(self, disk, executor, log_callback=None) -> bool:
+    def execute(self, disk, executor, log_callback=None, passes=None) -> bool:
         disk_number = disk.identifier  # e.g. "1", "2"
+
+        if passes and len(passes) > 1:
+            self._log(
+                f"NOTE: 'diskpart clean all' writes zeros to every sector in one "
+                f"operation; the requested {len(passes)}-pass pattern does not apply "
+                "and is recorded for the report only.",
+                log_callback,
+            )
 
         # Build diskpart script
         diskpart_script = (
@@ -308,7 +436,7 @@ class WindowsWipeStrategy(WipeStrategy):
 # Strategy Factory
 # ---------------------------------------------------------------------------
 
-def get_strategy(disk, os_type) -> WipeStrategy:
+def get_strategy(disk, os_type, method: str = "auto") -> WipeStrategy:
     """
     Factory function to select the appropriate wipe strategy
     based on disk properties and OS type.
@@ -316,6 +444,10 @@ def get_strategy(disk, os_type) -> WipeStrategy:
     Args:
         disk    : DiskInfo object.
         os_type : OSType enum value.
+        method  : Requested wipe method name (see core.wipe_passes). Reserved
+                  for method-specific strategy routing (e.g. a future hdparm
+                  ATA Secure Erase strategy); the overwrite pass list itself is
+                  built by the caller and handed to ``execute(passes=...)``.
 
     Returns:
         WipeStrategy: The appropriate strategy instance.
