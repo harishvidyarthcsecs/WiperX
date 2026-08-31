@@ -194,6 +194,21 @@ class ExecutionManager:
             _log(f"[DiskInfo] Size: {target_disk.size_human}")
             _log(f"[DiskInfo] Type: {target_disk.disk_type} / Bus: {target_disk.bus_type}")
 
+            # --- SMART health pre-check (advisory only, never blocks) ---
+            from core.os_detector import OSType as _OSType
+
+            if os_type == _OSType.LINUX:
+                from core.smart_check import check_health
+
+                smart = check_health(f"/dev/{target_disk.identifier}", executor, log_callback=_log)
+                if smart["healthy"] is False:
+                    _log(
+                        "[SMART] WARNING: this drive reports FAILING health. "
+                        "Wiping is still allowed (you may be decommissioning a "
+                        "known-bad drive), but consider this before spending "
+                        "time on a multi-pass method."
+                    )
+
             # --- Safety Check 2: Name confirmation ---
             _log("[Safety Check 2] Verifying user-typed disk name matches...")
             if request.confirmed_disk_name.strip() != request.disk_identifier.strip():
@@ -234,7 +249,12 @@ class ExecutionManager:
             # PassSpec sequence via strategy._run_passes.
             method = (request.method or "auto").strip().lower()
             pass_list = None
-            if method not in ("auto", ""):
+            if method == "ata-secure-erase":
+                # Hardware-level erase, no software pass list - the strategy
+                # itself (LinuxHdparmSecureEraseStrategy) does the whole job.
+                _log(f"[Method] {method}: hardware ATA Secure Erase via hdparm "
+                     "(no overwrite passes - drive controller performs the erase)")
+            elif method not in ("auto", ""):
                 from core.wipe_passes import describe, pass_spec
 
                 try:

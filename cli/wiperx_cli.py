@@ -96,6 +96,42 @@ def scan(mode, host, ssh_user, ssh_key, ssh_port, use_winrm, winrm_user, winrm_p
 
 
 # ---------------------------------------------------------------------------
+# SMART Command (advisory pre-wipe health check)
+# ---------------------------------------------------------------------------
+
+@cli.command("smart")
+@click.argument("disk_identifier")
+def smart(disk_identifier):
+    """
+    Advisory SMART health check for a local disk (e.g. sdb).
+
+    Also runs automatically, non-fatally, as part of `wipe` on Linux
+    targets - this command is for checking a drive's health on its own,
+    without wiping it.
+    """
+    print_banner()
+    from core.executors import LocalExecutor
+    from core.smart_check import check_health
+
+    device_path = disk_identifier if disk_identifier.startswith("/dev/") else f"/dev/{disk_identifier}"
+    result = check_health(device_path, LocalExecutor())
+
+    if not result["available"]:
+        click.echo(f"{Fore.YELLOW}SMART data unavailable: {result['detail']}{Style.RESET_ALL}")
+        click.echo("  (needs smartctl installed and usually root; some USB/NVMe "
+                    "bridges don't pass SMART commands through)")
+        sys.exit(0)
+
+    color = Fore.GREEN if result["healthy"] else (Fore.RED if result["healthy"] is False else Fore.YELLOW)
+    click.echo(f"{color}{result['detail']}{Style.RESET_ALL}")
+    if result["temperature_c"] is not None:
+        click.echo(f"  Temperature        : {result['temperature_c']}°C")
+    if result["reallocated_sectors"] is not None:
+        click.echo(f"  Reallocated sectors: {result['reallocated_sectors']}")
+    sys.exit(0 if result["healthy"] is not False else 1)
+
+
+# ---------------------------------------------------------------------------
 # WIPE Command
 # ---------------------------------------------------------------------------
 
@@ -112,10 +148,11 @@ def scan(mode, host, ssh_user, ssh_key, ssh_port, use_winrm, winrm_user, winrm_p
 @click.option("--winrm-port", default=5986, show_default=True, help="WinRM port.")
 @click.option("--method", default="auto", show_default=True,
               type=click.Choice(["auto", "clear", "zero", "random", "dod", "dod-3",
-                                 "dod-7", "gutmann", "nist-purge"]),
-              help="Wipe method. 'auto' uses each disk's native command; the "
-                   "others run an explicit overwrite pass sequence "
-                   "(see 'wiperx info').")
+                                 "dod-7", "gutmann", "nist-purge", "ata-secure-erase"]),
+              help="Wipe method. 'auto' uses each disk's native command; "
+                   "'ata-secure-erase' issues a hardware-level erase via hdparm "
+                   "(Linux SATA only); the rest run an explicit overwrite pass "
+                   "sequence (see 'wiperx info').")
 @click.option("--report-pdf", is_flag=True, help="Generate PDF certificate after wipe.")
 @click.option("--operator", default=None, help="Operator name for report.")
 def wipe(disk_identifier, mode, host, ssh_user, ssh_key, ssh_port,
@@ -465,6 +502,8 @@ def info():
     strategies = [
         ["Linux HDD", "GNU shred -n1 -z", "SATA HDD", "NIST SP 800-88"],
         ["Linux SSD", "blkdiscard + dd zero", "SATA SSD", "ATA Secure Erase equivalent"],
+        ["Linux SATA (hdparm)", "hdparm --security-erase", "SATA SSD/HDD",
+         "True ATA Secure Erase (--method ata-secure-erase)"],
         ["Linux NVMe", "nvme format --ses=1", "NVMe SSD", "NVMe Spec Crypto Erase"],
         ["Linux USB", "dd if=/dev/zero", "USB drives", "Full sector overwrite"],
         ["Windows", "diskpart clean all", "All Windows disks", "Microsoft diskpart"],

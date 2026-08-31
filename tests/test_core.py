@@ -288,3 +288,101 @@ class TestWipeMethodRouting:
         result, passes = self._run("bogus-method")
         assert passes is None
         assert result.method == "auto"
+
+    def test_ata_secure_erase_builds_no_pass_list(self):
+        """ata-secure-erase is a hardware op - no software pass list, and
+        the method name must survive (not get reset to "auto" like an
+        actually-unknown method would)."""
+        result, passes = self._run("ata-secure-erase")
+        assert passes is None
+        assert result.method == "ata-secure-erase"
+
+
+class TestHdparmSecureEraseStrategy:
+    def _make_disk(self, bus_type="SATA", identifier="sda"):
+        from core.disk_scanner import DiskInfo
+        return DiskInfo(identifier=identifier, disk_type="SSD", bus_type=bus_type)
+
+    def test_get_strategy_routes_sata_to_hdparm(self):
+        from core.strategies import get_strategy, LinuxHdparmSecureEraseStrategy
+        from core.os_detector import OSType
+        strategy = get_strategy(self._make_disk("SATA"), OSType.LINUX, method="ata-secure-erase")
+        assert isinstance(strategy, LinuxHdparmSecureEraseStrategy)
+
+    def test_get_strategy_rejects_usb_for_ata_secure_erase(self):
+        from core.strategies import get_strategy
+        from core.os_detector import OSType
+        with pytest.raises(ValueError):
+            get_strategy(self._make_disk("USB"), OSType.LINUX, method="ata-secure-erase")
+
+    def test_get_strategy_rejects_windows_for_ata_secure_erase(self):
+        from core.strategies import get_strategy
+        from core.os_detector import OSType
+        with pytest.raises(ValueError):
+            get_strategy(self._make_disk("SATA"), OSType.WINDOWS, method="ata-secure-erase")
+
+    def _executor(self, responses):
+        """A mock executor whose run_command returns/raises per a dict keyed
+        by a substring of the command."""
+        from unittest.mock import MagicMock
+
+        def run_command(cmd, timeout=30):
+            for key, outcome in responses.items():
+                if key in cmd:
+                    if isinstance(outcome, Exception):
+                        raise outcome
+                    return outcome
+            raise AssertionError(f"unexpected command: {cmd}")
+
+        executor = MagicMock()
+        executor.run_command.side_effect = run_command
+        return executor
+
+    def test_execute_succeeds_when_unlocked_and_not_frozen(self):
+        from core.strategies import LinuxHdparmSecureEraseStrategy
+        executor = self._executor({
+            "hdparm -I": "Security: \n\tsupported\n\tnot\tenabled\n\tnot\tlocked\n\tnot\tfrozen\n",
+            "security-set-pass": "",
+            "security-erase": "",
+        })
+        strategy = LinuxHdparmSecureEraseStrategy()
+        assert strategy.execute(self._make_disk(), executor) is True
+
+    def test_execute_blocks_on_frozen_drive(self):
+        from core.strategies import LinuxHdparmSecureEraseStrategy
+        executor = self._executor({
+            "hdparm -I": "Security: \n\tsupported\n\tnot\tenabled\n\tnot\tlocked\n\tfrozen\n",
+        })
+        strategy = LinuxHdparmSecureEraseStrategy()
+        assert strategy.execute(self._make_disk(), executor) is False
+        # must not even attempt to set a password on a frozen drive
+        assert not any(
+            "security-set-pass" in str(c) for c in executor.run_command.call_args_list
+        )
+
+    def test_execute_reports_unsupported_security_feature(self):
+        from core.strategies import LinuxHdparmSecureEraseStrategy
+        executor = self._executor({
+            "hdparm -I": "Security: \n\tnot\tsupported\n",
+        })
+        strategy = LinuxHdparmSecureEraseStrategy()
+        assert strategy.execute(self._make_disk(), executor) is False
+
+    def test_execute_fails_cleanly_when_set_pass_fails(self):
+        from core.strategies import LinuxHdparmSecureEraseStrategy
+        executor = self._executor({
+            "hdparm -I": "Security: \n\tsupported\n\tnot\tfrozen\n",
+            "security-set-pass": RuntimeError("device busy"),
+        })
+        strategy = LinuxHdparmSecureEraseStrategy()
+        assert strategy.execute(self._make_disk(), executor) is False
+
+    def test_execute_fails_cleanly_when_erase_fails(self):
+        from core.strategies import LinuxHdparmSecureEraseStrategy
+        executor = self._executor({
+            "hdparm -I": "Security: \n\tsupported\n\tnot\tfrozen\n",
+            "security-set-pass": "",
+            "security-erase": RuntimeError("erase aborted by drive"),
+        })
+        strategy = LinuxHdparmSecureEraseStrategy()
+        assert strategy.execute(self._make_disk(), executor) is False

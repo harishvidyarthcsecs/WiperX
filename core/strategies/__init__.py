@@ -255,6 +255,104 @@ class LinuxSSDWipeStrategy(WipeStrategy):
 
 
 # ---------------------------------------------------------------------------
+# Linux SATA Strategy — hdparm ATA Secure Erase (hardware-level)
+# ---------------------------------------------------------------------------
+
+class LinuxHdparmSecureEraseStrategy(WipeStrategy):
+    """
+    True hardware-level ATA Secure Erase via hdparm, for SATA SSDs/HDDs.
+
+    Unlike LinuxSSDWipeStrategy's software overwrite (which shares blkdiscard's
+    limitation of not reaching wear-levelled/remapped flash cells), this asks
+    the drive's own controller to erase itself - the manufacturer-recommended
+    method for SSDs and the closest thing to a guarantee that every cell,
+    including over-provisioned and remapped ones, is actually cleared.
+
+    Only reachable by explicitly requesting method="ata-secure-erase"; never
+    selected automatically, since a frozen drive (see below) needs a physical
+    power-cycle workaround this tool cannot perform, and setting a security
+    password on the wrong drive is the kind of mistake this codebase's other
+    4 safety layers exist to prevent - this strategy is a deliberate, named
+    opt-in, not a default.
+
+    Commands (drive already unlocked, not frozen):
+        hdparm --user-master u --security-set-pass p /dev/sdX
+        hdparm --user-master u --security-erase p /dev/sdX
+    """
+
+    name = "LinuxSATA-HdparmSecureErase"
+    description = "Hardware-level ATA Secure Erase via hdparm (SATA, manufacturer-grade)"
+
+    _ERASE_PASSWORD = "WiperXTempP@ss"  # scoped to this erase op; drive is wiped after
+
+    def execute(self, disk, executor, log_callback=None, passes=None) -> bool:
+        device_path = f"/dev/{disk.identifier}"
+
+        self._log(f"Checking security/frozen state of {device_path}", log_callback)
+        try:
+            info = str(executor.run_command(f"hdparm -I {device_path}", timeout=30))
+        except Exception as exc:
+            self._log(
+                f"ERROR: could not read drive security state (is hdparm installed, "
+                f"and is {device_path} a SATA device?): {exc}",
+                log_callback,
+            )
+            return False
+
+        if "not\tsupported" in info.replace(" ", "\t").lower() and "security" in info.lower():
+            self._log(
+                f"ERROR: {device_path} does not report ATA Security feature support. "
+                "Use LinuxSSD-BlkDiscard or a native overwrite pass instead.",
+                log_callback,
+            )
+            return False
+
+        if "frozen" in info.lower() and "not\tfrozen" not in info.replace(" ", "\t").lower():
+            self._log(
+                f"ERROR: {device_path} reports SECURITY FROZEN. hdparm cannot lift a "
+                "frozen state in software. On a laptop, suspend then resume the system "
+                "(do not reboot) and retry immediately; on a hot-swap bay, unplug and "
+                "replug the drive. This is a drive/BIOS safety feature, not a WiperX bug.",
+                log_callback,
+            )
+            return False
+
+        pw = self._ERASE_PASSWORD
+        self._log(f"Setting temporary security password on {device_path}", log_callback)
+        try:
+            executor.run_command(
+                f"hdparm --user-master u --security-set-pass {pw} {device_path}",
+                timeout=30,
+            )
+        except Exception as exc:
+            self._log(f"ERROR: security-set-pass failed on {device_path}: {exc}", log_callback)
+            return False
+
+        self._log(
+            f"Issuing SECURITY ERASE on {device_path} — this can take a long time "
+            "(the drive itself decides the duration; hdparm blocks until it's done)",
+            log_callback,
+        )
+        try:
+            out = executor.run_command(
+                f"hdparm --user-master u --security-erase {pw} {device_path}",
+                timeout=14400,
+            )
+            self._log(f"hdparm output: {out}", log_callback)
+            self._log(f"Hardware secure erase complete on {device_path}", log_callback)
+            return True
+        except Exception as exc:
+            self._log(
+                f"ERROR: security-erase failed on {device_path}: {exc}. "
+                "The drive may still have the temporary password set - clear it with "
+                f"'hdparm --user-master u --security-disable {pw} {device_path}' "
+                "before reusing the drive normally.",
+                log_callback,
+            )
+            return False
+
+
+# ---------------------------------------------------------------------------
 # Linux NVMe Strategy — nvme format
 # ---------------------------------------------------------------------------
 
@@ -444,10 +542,12 @@ def get_strategy(disk, os_type, method: str = "auto") -> WipeStrategy:
     Args:
         disk    : DiskInfo object.
         os_type : OSType enum value.
-        method  : Requested wipe method name (see core.wipe_passes). Reserved
-                  for method-specific strategy routing (e.g. a future hdparm
-                  ATA Secure Erase strategy); the overwrite pass list itself is
-                  built by the caller and handed to ``execute(passes=...)``.
+        method  : Requested wipe method name. Most methods (see
+                  core.wipe_passes) select an overwrite pass list handed to
+                  ``execute(passes=...)`` and don't affect strategy choice.
+                  "ata-secure-erase" is the exception: it selects
+                  LinuxHdparmSecureEraseStrategy directly, a hardware-level
+                  erase with no pass list of its own.
 
     Returns:
         WipeStrategy: The appropriate strategy instance.
@@ -456,6 +556,15 @@ def get_strategy(disk, os_type, method: str = "auto") -> WipeStrategy:
         ValueError: If no strategy matches the disk/OS combination.
     """
     from core.os_detector import OSType
+
+    if (method or "").strip().lower() == "ata-secure-erase":
+        if os_type == OSType.LINUX and disk.bus_type in ("SATA", None, ""):
+            return LinuxHdparmSecureEraseStrategy()
+        raise ValueError(
+            "ata-secure-erase requires a Linux SATA target - USB/Thunderbolt "
+            "bridges are known to drop ATA security commands unreliably "
+            f"(got os_type={os_type}, bus_type={disk.bus_type})"
+        )
 
     if os_type == OSType.WINDOWS:
         return WindowsWipeStrategy()
