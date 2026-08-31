@@ -149,3 +149,28 @@ def test_png_validates_intact(tmp_path):
     png_rec = next(r for r in res["records"] if r["sha256"] == png_hash)
     assert png_rec["validation_state"] == "intact"
     assert png_rec["confidence_band"] == "high"
+
+
+def test_recovery_case_view_via_web(tmp_path, admin, monkeypatch):
+    """A signed case is browsable + verified through the recovery blueprint."""
+    import web.blueprints.recovery as rec_bp
+    import web.blueprints.dashboard as dash_bp
+
+    cases_root = tmp_path / "cases"
+    monkeypatch.setattr(rec_bp, "CASES_DIR", cases_root)
+    monkeypatch.setattr(dash_bp, "CASES_DIR", cases_root)
+
+    img, _placed, _assets = _build_image(tmp_path)
+    name = "web-testcase"
+    res = service.recover(str(img), str(cases_root / name), operator="pytest", carve_only=True)
+    assert res["signed"] is True
+
+    page = admin.get("/recovery/case/{}".format(name))
+    assert page.status_code == 200
+    body = page.get_data(as_text=True)
+    assert "signature verified" in body
+    assert ".png" in body
+
+    listing = admin.get("/recovery/cases/")
+    assert listing.status_code == 200
+    assert name in listing.get_data(as_text=True)

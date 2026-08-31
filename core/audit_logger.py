@@ -103,3 +103,37 @@ def log_event(event: str, data: dict = None):
     if data:
         record.extra_data = data
     audit_logger.handle(record)
+
+
+def read_recent_events(limit: int = 20) -> list:
+    """
+    Return the most recent audit events (newest first) from the latest log file.
+
+    Reads only the current day's ``wiperx_audit_<date>.log``; malformed lines
+    are skipped. Returns an empty list if no log file exists yet.
+
+    Args:
+        limit : Maximum number of events to return.
+
+    Returns:
+        list[dict] : parsed JSON-Lines records, newest first.
+    """
+    files = sorted(LOGS_DIR.glob("wiperx_audit_*.log"))
+    if not files:
+        return []
+    try:
+        lines = files[-1].read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return []
+
+    events = []
+    for line in lines[-max(1, limit):]:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            events.append(json.loads(line))
+        except ValueError:
+            continue
+    events.reverse()
+    return events

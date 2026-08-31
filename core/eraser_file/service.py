@@ -11,14 +11,16 @@ An erase run:
   3. Writes an audit-log event for the run.
   4. Builds a report dict and writes it as a signed JSON certificate.
 
-file_shredder / batch are the Codex-owned Phase 1 deliverables; until they
-land this module raises a clear RuntimeError from erase_paths().
+Post-erase verification (Linux + root, filefrag available) samples each
+file's former physical extents via core.eraser_file.verify and records the
+result in the certificate; on every other platform it is reported as skipped.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import os
 import platform
 import socket
 from dataclasses import asdict, is_dataclass
@@ -28,21 +30,14 @@ from typing import Callable, Optional
 
 from core import report_signer
 from core.audit_logger import log_event
-from core.eraser_file import trace_scrubber
+from core.eraser_file import trace_scrubber, verify
+from core.eraser_file.batch import shred_paths
 
 logger = logging.getLogger(__name__)
 
 LogCB = Optional[Callable[[str], None]]
 
 REPORTS_DIR = Path(__file__).parent.parent.parent / "reports"
-
-try:
-    from core.eraser_file.batch import shred_paths
-
-    _SHREDDER_AVAILABLE = True
-except ImportError:  # Codex Phase 1 deliverable not present yet
-    shred_paths = None  # type: ignore
-    _SHREDDER_AVAILABLE = False
 
 COMPLIANCE_NOTE = (
     "Overwrite-based secure deletion of logical media, mapped to NIST SP 800-88 "
@@ -52,8 +47,8 @@ COMPLIANCE_NOTE = (
 
 
 def shredder_available() -> bool:
-    """True once core.eraser_file.batch.shred_paths is importable."""
-    return _SHREDDER_AVAILABLE
+    """True when the file-shredder batch module is importable (normal install)."""
+    return shred_paths is not None
 
 
 def _to_dict(obj):
@@ -64,6 +59,74 @@ def _to_dict(obj):
     return {"value": repr(obj)}
 
 
+def _linux_root() -> bool:
+    """True on Linux running as uid 0 (needed for raw-device extent sampling)."""
+    return (
+        platform.system() == "Linux"
+        and hasattr(os, "geteuid")
+        and os.geteuid() == 0
+    )
+
+
+def _capture_extent_map(path_list) -> dict:
+    """
+    Best-effort {path: (device, extents)} for regular files, captured *before*
+    shredding. Only attempted on Linux as root with filefrag available;
+    returns {} otherwise so callers degrade gracefully.
+    """
+    if not _linux_root():
+        return {}
+    out = {}
+    for p in path_list:
+        try:
+            if not os.path.isfile(p):
+                continue
+            device = trace_scrubber.containing_device(p)
+            extents = trace_scrubber.file_block_map(p)
+        except OSError:
+            continue
+        if device and extents:
+            out[p] = (device, extents)
+    return out
+
+
+def _verify_after_erase(pre_extent_map: dict, log_callback: LogCB = None) -> dict:
+    """Sample each captured file's former extents and confirm they read zero."""
+    method = "core.eraser_file.verify.verify_extents_zeroed"
+    if not _linux_root():
+        return {
+            "status": "skipped",
+            "method": method,
+            "reason": "post-erase extent sampling requires Linux + root + filefrag",
+        }
+    if not pre_extent_map:
+        return {
+            "status": "skipped",
+            "method": method,
+            "reason": "no regular-file extent maps could be captured before erase",
+        }
+
+    checks = []
+    all_ok = True
+    for path, (device, extents) in pre_extent_map.items():
+        try:
+            res = verify.verify_extents_zeroed(
+                device, extents, samples=64, log_callback=log_callback
+            )
+        except OSError as exc:  # noqa: BLE001 - record, never abort the run
+            res = {"verified": False, "details": f"{exc.__class__.__name__}: {exc}"}
+        res["path"] = path
+        checks.append(res)
+        all_ok = all_ok and bool(res.get("verified"))
+
+    return {
+        "status": "performed",
+        "method": method,
+        "all_extents_zeroed": all_ok,
+        "checks": checks,
+    }
+
+
 def build_erase_report(
     *,
     operator: str,
@@ -71,6 +134,7 @@ def build_erase_report(
     free_space: Optional[dict],
     trim: Optional[dict],
     options: dict,
+    verification: Optional[dict] = None,
 ) -> dict:
     """Assemble the machine-readable erase report (pre-signature)."""
     summary = _to_dict(batch_summary)
@@ -89,6 +153,7 @@ def build_erase_report(
         "files": results,
         "free_space_wipe": free_space,
         "fstrim": trim,
+        "verification": verification or {"status": "skipped", "reason": "not requested"},
         "compliance": {
             "standard": "NIST SP 800-88 Rev.1 (Guidelines for Media Sanitization)",
             "category": "Clear",
@@ -128,18 +193,11 @@ def erase_paths(
         log_callback    : Optional real-time log sink.
 
     Returns:
-        dict: {summary, files, certificate_path, report, free_space_wipe, fstrim}
-
-    Raises:
-        RuntimeError : file_shredder / batch not yet available.
+        dict: {summary, files, certificate_path, certificate_signed, report,
+               free_space_wipe, fstrim}
     """
-    if not _SHREDDER_AVAILABLE:
-        raise RuntimeError(
-            "core.eraser_file.batch.shred_paths is not available yet "
-            "(Codex Phase 1 deliverable: file_shredder.py + batch.py)."
-        )
-
     path_list = [str(p) for p in paths]
+    pre_extent_map = _capture_extent_map(path_list)
     options = {
         "paths": path_list,
         "recursive": recursive,
@@ -169,12 +227,15 @@ def erase_paths(
         if fstrim_after:
             trim = trace_scrubber.fstrim(wipe_free_mount, log_callback=log_callback)
 
+    verification = _verify_after_erase(pre_extent_map, log_callback)
+
     report = build_erase_report(
         operator=operator,
         batch_summary=summary,
         free_space=free_space,
         trim=trim,
         options=options,
+        verification=verification,
     )
 
     out_dir = Path(reports_dir) if reports_dir else REPORTS_DIR

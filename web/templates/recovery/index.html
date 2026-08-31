@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Recover{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h3 class="mb-1" style="color:#e74c3c; font-weight:700; letter-spacing:2px">
+            <i class="bi bi-life-preserver"></i> FILE CARVING &amp; RECOVERY
+        </h3>
+        <p class="text-muted mb-0 small">Read-only forensic recovery from a device or image (Module 3)</p>
+    </div>
+    <a href="{{ url_for('recovery.cases') }}" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-folder2-open"></i> Past Cases
+    </a>
+</div>
+
+<div class="row">
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header"><strong><i class="bi bi-search"></i> New Recovery</strong></div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('recovery.index') }}">
+                    <div class="mb-3">
+                        <label class="form-label">Source (block device or image file)</label>
+                        <input type="text" name="source" class="form-control"
+                               placeholder="/path/to/disk.img  or  /dev/sdX" required>
+                        <div class="form-text">
+                            The source is opened <strong>read-only</strong>. Recovering from a
+                            <code>/dev/*</code> device requires the administrator role.
+                            {% if allowed_root %}
+                            <br>Image sources must live under <code>{{ allowed_root }}</code>.
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Mode</label>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="mode" id="mode-full" value="full" checked>
+                            <label class="form-check-label" for="mode-full">
+                                Full &mdash; filesystem undelete pass, then signature carving
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="mode" id="mode-carve" value="carve-only">
+                            <label class="form-check-label" for="mode-carve">Carve only &mdash; skip the filesystem pass</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="mode" id="mode-fs" value="fs-only">
+                            <label class="form-check-label" for="mode-fs">Filesystem only &mdash; skip carving</label>
+                        </div>
+                    </div>
+
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" name="allow_mounted" id="allow-mounted">
+                        <label class="form-check-label" for="allow-mounted">
+                            Allow a read-write mounted device (unsafe &mdash; concurrent writes can corrupt the recovery)
+                        </label>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Operator</label>
+                        <input type="text" name="operator" class="form-control"
+                               value="{{ current_user.username }}">
+                    </div>
+
+                    <button type="submit" class="btn btn-danger">
+                        <i class="bi bi-play-fill"></i> Start Recovery
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-header"><strong><i class="bi bi-info-circle"></i> Notes</strong></div>
+            <div class="card-body small text-muted">
+                <p>Recovered files land in <code>cases/&lt;id&gt;/recovered/</code> alongside an
+                Ed25519-signed <code>case_report.json</code> with a per-file SHA-256 manifest and
+                a source chain-of-custody header.</p>
+                <p class="mb-0">Fragmented-file support is limited to contiguous files and
+                bifragment JPEG.</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

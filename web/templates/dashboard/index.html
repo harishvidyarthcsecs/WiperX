@@ -7,14 +7,54 @@
         <h3 class="mb-1" style="color:#e74c3c; font-weight:700; letter-spacing:2px">
             <i class="bi bi-speedometer2"></i> DASHBOARD
         </h3>
-        <p class="text-muted mb-0 small">WiperX Disk Sanitization System</p>
+        <p class="text-muted mb-0 small">WiperX Unified Sanitization &amp; Recovery Platform</p>
     </div>
     <div>
-        <a href="{{ url_for('disks.scan_local') }}" class="btn btn-danger btn-sm me-2">
-            <i class="bi bi-search"></i> Scan Local
+        <a href="{{ url_for('dashboard.audit') }}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-file-lock"></i> Audit Log
         </a>
-        <a href="{{ url_for('machines.add') }}" class="btn btn-outline-secondary btn-sm">
-            <i class="bi bi-plus-circle"></i> Add Machine
+    </div>
+</div>
+
+<!-- Action cards -->
+<div class="row g-3 mb-4">
+    <div class="col-md-4">
+        <a href="{{ url_for('disks.scan_local') }}" class="text-decoration-none">
+            <div class="card stat-card h-100">
+                <div class="card-body d-flex justify-content-between align-items-center">
+                    <div>
+                        <p class="text-muted small mb-1">MODULE 1</p>
+                        <h5 class="fw-bold mb-0" style="color:var(--wx-text)">Erase Drive</h5>
+                    </div>
+                    <i class="bi bi-hdd-rack" style="font-size:2.4rem; color:#30363d"></i>
+                </div>
+            </div>
+        </a>
+    </div>
+    <div class="col-md-4">
+        <a href="{{ url_for('eraser.index') }}" class="text-decoration-none">
+            <div class="card stat-card h-100">
+                <div class="card-body d-flex justify-content-between align-items-center">
+                    <div>
+                        <p class="text-muted small mb-1">MODULE 2</p>
+                        <h5 class="fw-bold mb-0" style="color:var(--wx-text)">Erase Files</h5>
+                    </div>
+                    <i class="bi bi-eraser" style="font-size:2.4rem; color:#30363d"></i>
+                </div>
+            </div>
+        </a>
+    </div>
+    <div class="col-md-4">
+        <a href="{{ url_for('recovery.index') }}" class="text-decoration-none">
+            <div class="card stat-card h-100">
+                <div class="card-body d-flex justify-content-between align-items-center">
+                    <div>
+                        <p class="text-muted small mb-1">MODULE 3</p>
+                        <h5 class="fw-bold mb-0" style="color:var(--wx-text)">Recover</h5>
+                    </div>
+                    <i class="bi bi-life-preserver" style="font-size:2.4rem; color:#30363d"></i>
+                </div>
+            </div>
         </a>
     </div>
 </div>
@@ -22,107 +62,84 @@
 <!-- Stats Row -->
 <div class="row g-3 mb-4">
     <div class="col-md-3">
-        <div class="card stat-card h-100">
-            <div class="card-body">
-                <div class="d-flex justify-content-between">
-                    <div>
-                        <p class="text-muted small mb-1">REGISTERED MACHINES</p>
-                        <h3 class="fw-bold">{{ machine_count }}</h3>
-                    </div>
-                    <i class="bi bi-pc-display" style="font-size:2.5rem; color:#30363d"></i>
-                </div>
+        <div class="card stat-card h-100"><div class="card-body">
+            <div class="d-flex justify-content-between">
+                <div><p class="text-muted small mb-1">MACHINES</p><h3 class="fw-bold">{{ machine_count }}</h3></div>
+                <i class="bi bi-pc-display" style="font-size:2.2rem; color:#30363d"></i>
             </div>
-        </div>
+        </div></div>
     </div>
     <div class="col-md-3">
-        <div class="card stat-card h-100">
-            <div class="card-body">
-                <div class="d-flex justify-content-between">
-                    <div>
-                        <p class="text-muted small mb-1">WIPE REPORTS</p>
-                        <h3 class="fw-bold">{{ report_count }}</h3>
-                    </div>
-                    <i class="bi bi-file-earmark-check" style="font-size:2.5rem; color:#30363d"></i>
-                </div>
+        <div class="card stat-card h-100"><div class="card-body">
+            <div class="d-flex justify-content-between">
+                <div><p class="text-muted small mb-1">WIPE CERTIFICATES</p><h3 class="fw-bold">{{ report_counts.wipe }}</h3></div>
+                <i class="bi bi-file-earmark-check" style="font-size:2.2rem; color:#30363d"></i>
             </div>
-        </div>
+        </div></div>
     </div>
     <div class="col-md-3">
-        <div class="card stat-card h-100">
-            <div class="card-body">
-                <div class="d-flex justify-content-between">
-                    <div>
-                        <p class="text-muted small mb-1">LOCAL OS</p>
-                        <h3 class="fw-bold" style="font-size:1.2rem">{{ system_info.os }}</h3>
-                    </div>
-                    <i class="bi bi-cpu" style="font-size:2.5rem; color:#30363d"></i>
-                </div>
+        <div class="card stat-card h-100"><div class="card-body">
+            <div class="d-flex justify-content-between">
+                <div><p class="text-muted small mb-1">ERASE CERTIFICATES</p><h3 class="fw-bold">{{ report_counts.erase + report_counts.freespace }}</h3></div>
+                <i class="bi bi-eraser-fill" style="font-size:2.2rem; color:#30363d"></i>
             </div>
-        </div>
+        </div></div>
     </div>
     <div class="col-md-3">
-        <div class="card stat-card h-100">
-            <div class="card-body">
-                <div class="d-flex justify-content-between">
-                    <div>
-                        <p class="text-muted small mb-1">HOSTNAME</p>
-                        <h3 class="fw-bold" style="font-size:1rem">{{ system_info.hostname }}</h3>
-                    </div>
-                    <i class="bi bi-server" style="font-size:2.5rem; color:#30363d"></i>
-                </div>
+        <div class="card stat-card h-100"><div class="card-body">
+            <div class="d-flex justify-content-between">
+                <div><p class="text-muted small mb-1">RECOVERY CASES</p><h3 class="fw-bold">{{ case_count }}</h3></div>
+                <i class="bi bi-life-preserver" style="font-size:2.2rem; color:#30363d"></i>
             </div>
-        </div>
+        </div></div>
     </div>
 </div>
 
-<!-- Quick Actions + Machines -->
+<!-- Recent activity + recent reports -->
 <div class="row g-3">
-    <div class="col-md-6">
+    <div class="col-md-7">
         <div class="card h-100">
-            <div class="card-header">
-                <strong><i class="bi bi-lightning-charge"></i> Quick Actions</strong>
-            </div>
-            <div class="card-body">
-                <div class="d-grid gap-2">
-                    <a href="{{ url_for('disks.scan_local') }}" class="btn btn-outline-primary">
-                        <i class="bi bi-hdd-rack me-2"></i>Scan Local Disks
-                    </a>
-                    <a href="{{ url_for('machines.add') }}" class="btn btn-outline-secondary">
-                        <i class="bi bi-plus-circle me-2"></i>Register Remote Machine
-                    </a>
-                    <a href="{{ url_for('reports.index') }}" class="btn btn-outline-secondary">
-                        <i class="bi bi-file-earmark-text me-2"></i>View All Reports
-                    </a>
-                </div>
+            <div class="card-header"><strong><i class="bi bi-activity"></i> Recent Activity</strong></div>
+            <div class="card-body p-0">
+                {% if recent_events %}
+                <table class="table table-hover table-sm mb-0">
+                    <thead><tr><th>Time (UTC)</th><th>Event</th><th>User</th></tr></thead>
+                    <tbody>
+                        {% for e in recent_events %}
+                        <tr>
+                            <td class="small text-muted">{{ e.timestamp }}</td>
+                            <td><code>{{ e.event }}</code></td>
+                            <td class="small">{{ e.user }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <div class="text-center text-muted py-4">No audit events yet.</div>
+                {% endif %}
             </div>
         </div>
     </div>
-    <div class="col-md-6">
+    <div class="col-md-5">
         <div class="card h-100">
-            <div class="card-header">
-                <strong><i class="bi bi-pc-display"></i> Recent Machines</strong>
-            </div>
+            <div class="card-header"><strong><i class="bi bi-file-earmark-text"></i> Recent Reports</strong></div>
             <div class="card-body p-0">
-                {% if machines %}
-                <table class="table table-hover mb-0">
-                    <thead><tr>
-                        <th>Hostname</th><th>Type</th><th>Status</th><th></th>
-                    </tr></thead>
+                {% if recent_reports %}
+                <table class="table table-hover table-sm mb-0">
+                    <thead><tr><th>Name</th><th>Kind</th><th>Signature</th></tr></thead>
                     <tbody>
-                        {% for m in machines %}
+                        {% for r in recent_reports %}
                         <tr>
-                            <td>{{ m.hostname }}</td>
-                            <td><span class="badge bg-secondary">{{ m.connection_type.upper() }}</span></td>
+                            <td><a href="{{ r.url }}" class="text-decoration-none"><code>{{ r.name }}</code></a></td>
+                            <td class="small text-muted">{{ r.kind }}</td>
                             <td>
-                                <span class="badge {% if m.status == 'online' %}bg-success{% elif m.status == 'offline' %}bg-danger{% else %}bg-secondary{% endif %}">
-                                    {{ m.status }}
-                                </span>
-                            </td>
-                            <td>
-                                <a href="{{ url_for('disks.scan_remote', machine_id=m.machine_id) }}"
-                                   class="btn btn-sm btn-outline-primary">
-                                    <i class="bi bi-search"></i>
-                                </a>
+                                {% if r.valid and r.trusted %}
+                                    <span class="badge bg-success">verified</span>
+                                {% elif r.valid %}
+                                    <span class="badge" style="background:#f39c12">untrusted key</span>
+                                {% else %}
+                                    <span class="badge bg-danger">unsigned</span>
+                                {% endif %}
                             </td>
                         </tr>
                         {% endfor %}
@@ -130,9 +147,7 @@
                 </table>
                 {% else %}
                 <div class="text-center text-muted py-4">
-                    <i class="bi bi-pc-display" style="font-size:2rem"></i>
-                    <p class="mt-2">No machines registered yet.</p>
-                    <a href="{{ url_for('machines.add') }}" class="btn btn-sm btn-outline-secondary">Add Machine</a>
+                    No reports yet. <a href="{{ url_for('reports.index') }}">Reports</a>
                 </div>
                 {% endif %}
             </div>
@@ -140,11 +155,10 @@
     </div>
 </div>
 
-<!-- Security Notice -->
 <div class="mt-4 p-3 rounded" style="background: rgba(231,76,60,0.06); border: 1px solid rgba(231,76,60,0.3)">
     <i class="bi bi-shield-exclamation text-warning"></i>
     <strong class="ms-1">Security Notice:</strong>
-    <span class="text-muted">All wipe operations are logged. System disks cannot be wiped while OS is running.
-    Use PXE boot or a live ISO for full-disk sanitization of system drives.</span>
+    <span class="text-muted">All operations are logged. System disks cannot be wiped while the OS is running;
+    use a live/boot environment for full-disk sanitization. Recovery opens every source read-only.</span>
 </div>
 {% endblock %}

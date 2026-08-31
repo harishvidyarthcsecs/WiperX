@@ -27,7 +27,7 @@ import logging
 from flask import Flask
 from flask_login import LoginManager
 
-from web.models import User, get_user_store
+from web.models import get_user_store
 
 # Configure structured logging
 logging.basicConfig(
@@ -85,6 +85,7 @@ def create_app(config_override: dict = None) -> Flask:
     from web.blueprints.wipe import wipe_bp
     from web.blueprints.reports import reports_bp
     from web.blueprints.eraser import eraser_bp
+    from web.blueprints.recovery import recovery_bp
 
     app.register_blueprint(auth_bp, url_prefix="/auth")
     app.register_blueprint(dashboard_bp, url_prefix="/")
@@ -93,5 +94,6 @@ def create_app(config_override: dict = None) -> Flask:
     app.register_blueprint(wipe_bp, url_prefix="/wipe")
     app.register_blueprint(reports_bp, url_prefix="/reports")
     app.register_blueprint(eraser_bp, url_prefix="/eraser")
+    app.register_blueprint(recovery_bp, url_prefix="/recovery")
 
     return app

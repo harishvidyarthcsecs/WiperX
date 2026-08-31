@@ -277,8 +277,8 @@ def erase_file(paths, passes, no_zero, rename_rounds, workers, operator, yes):
     from core.eraser_file import service
 
     if not service.shredder_available():
-        click.echo(f"{Fore.RED}file_shredder/batch not implemented yet "
-                   f"(Codex Phase 1 deliverable).{Style.RESET_ALL}", err=True)
+        click.echo(f"{Fore.RED}File-shredder module unavailable in this "
+                   f"installation.{Style.RESET_ALL}", err=True)
         sys.exit(2)
 
     click.echo(f"{Fore.RED}This permanently destroys the contents of:{Style.RESET_ALL}")
@@ -320,8 +320,8 @@ def erase_folder(folders, passes, no_zero, rename_rounds, workers,
     from core.eraser_file import service
 
     if not service.shredder_available():
-        click.echo(f"{Fore.RED}file_shredder/batch not implemented yet "
-                   f"(Codex Phase 1 deliverable).{Style.RESET_ALL}", err=True)
+        click.echo(f"{Fore.RED}File-shredder module unavailable in this "
+                   f"installation.{Style.RESET_ALL}", err=True)
         sys.exit(2)
 
     click.echo(f"{Fore.RED}This permanently destroys every file under:{Style.RESET_ALL}")

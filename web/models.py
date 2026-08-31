@@ -18,8 +18,8 @@ Role-Based Access Control (RBAC) Design:
 
 import bcrypt
 from flask_login import UserMixin
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from dataclasses import dataclass
+from typing import Dict, Optional
 
 
 class UserRole:
@@ -31,8 +31,8 @@ class UserRole:
 
     # Permissions mapping
     PERMISSIONS = {
-        ADMIN: ["scan", "wipe", "manage_machines", "download_reports", "view_logs"],
-        OPERATOR: ["scan", "wipe", "download_reports"],
+        ADMIN: ["scan", "wipe", "recover", "manage_machines", "download_reports", "view_logs"],
+        OPERATOR: ["scan", "wipe", "recover", "download_reports"],
         VIEWER: ["scan", "download_reports"],
     }
 
