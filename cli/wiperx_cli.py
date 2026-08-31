@@ -383,6 +383,54 @@ def wipe_free(mount_point, passes, no_zero, fstrim_after, operator, yes):
     sys.exit(0 if ok else 1)
 
 
+# ---------------------------------------------------------------------------
+# Advanced File Carving & Recovery (Module 3)
+# ---------------------------------------------------------------------------
+
+@cli.command("recover")
+@click.option("--source", required=True, type=click.Path(exists=True),
+              help="Block device (/dev/sdX) or image file (.dd / .img).")
+@click.option("--out", "out_dir", required=True, type=click.Path(),
+              help="Case output directory (created if absent).")
+@click.option("--carve-only", is_flag=True, help="Skip the filesystem undelete pass.")
+@click.option("--fs-only", is_flag=True, help="Skip the signature carving pass.")
+@click.option("--allow-mounted", is_flag=True,
+              help="Proceed even if the source device is mounted read-write (unsafe).")
+@click.option("--operator", default=None, help="Operator name for the case report.")
+def recover(source, out_dir, carve_only, fs_only, allow_mounted, operator):
+    """Recover deleted / lost files from a device or image (read-only source)."""
+    print_banner()
+    from core.recovery import service
+
+    operator = operator or getpass.getuser()
+    try:
+        res = service.recover(
+            source, out_dir, operator=operator,
+            carve_only=carve_only, fs_only=fs_only, allow_mounted=allow_mounted,
+            log_callback=lambda m: click.echo(f"{Fore.WHITE}{m}{Style.RESET_ALL}"),
+        )
+    except Exception as exc:  # noqa: BLE001 - surface to the operator
+        click.echo(f"{Fore.RED}FATAL: {exc}{Style.RESET_ALL}", err=True)
+        sys.exit(1)
+
+    s = res["summary"]
+    click.echo(f"\n{'='*60}")
+    click.echo(f"{Fore.CYAN}  Recovery Summary — case {res['case_id']}{Style.RESET_ALL}")
+    click.echo(f"{'='*60}")
+    click.echo(f"  files recovered : {s['total']}")
+    click.echo(f"  by method       : {s['by_method']}")
+    click.echo(f"  by category     : {s['by_category']}")
+    click.echo(f"  by validation   : {s['by_validation']}")
+    click.echo(f"  by confidence   : {s['by_confidence_band']}")
+    click.echo(f"  manifest sha256 : {res['manifest_sha256']}")
+    tag = f"{Fore.GREEN}signed{Style.RESET_ALL}" if res["signed"] else f"{Fore.YELLOW}UNSIGNED{Style.RESET_ALL}"
+    click.echo(f"  case report     : {res['report_path']} ({tag})")
+    click.echo(f"  recovered files : {res['case_dir']}/recovered/")
+    click.echo(f"{'='*60}")
+    click.echo(f"{Fore.CYAN}Verify: wiperx verify-report {res['report_path']}{Style.RESET_ALL}\n")
+    sys.exit(0)
+
+
 @cli.command("verify-report")
 @click.argument("report_path", type=click.Path(exists=True))
 def verify_report(report_path):
