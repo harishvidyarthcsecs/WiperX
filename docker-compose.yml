@@ -1,0 +1,74 @@
+# wiperx/docker-compose.yml
+#
+# Two services: `web` (gunicorn + Flask) behind `nginx` (TLS termination,
+# static-friendly reverse proxy, request buffering off for the SSE log
+# streams used by /wipe/execute and /recovery/stream/<id>).
+#
+# Persistent state (reports, audit logs, recovery cases, the Ed25519
+# signing key) lives in named volumes so `docker compose down` / a
+# container recreate doesn't lose certificates or invalidate old
+# signatures by rotating the signing key.
+#
+# IMPORTANT - Module 1 (drive wipe) needs real access to host block
+# devices and root inside the container. Two ways to grant that,
+# neither on by default here (commented out - opt in deliberately,
+# the same "no default is the dangerous default" posture the rest of
+# this codebase takes):
+#   - privileged: true                         (broad: all host devices)
+#   - devices: ["/dev/sdb:/dev/sdb"]            (scoped: one disk at a time)
+# Module 2 (file/folder eraser) and Module 3 (carving/recovery) do NOT
+# need either - they operate on ordinary files/images passed in via a
+# bind mount, matching how docs/PERFORMANCE_EVALUATION.md's benchmarks
+# and tools/demo_recover.sh already run rootless.
+
+services:
+  web:
+    build: .
+    # For local development against a live source tree instead of the
+    # baked-in COPY, override with:
+    #   command: python run.py --host 0.0.0.0 --port 5000 --debug
+    expose:
+      - "5000"
+    environment:
+      WIPERX_SECRET_KEY: ${WIPERX_SECRET_KEY:?set WIPERX_SECRET_KEY in .env}
+      WIPERX_HTTPS: "true"
+      WIPERX_SSH_KEY_PATH: ${WIPERX_SSH_KEY_PATH:-}
+      WIPERX_WINRM_USER: ${WIPERX_WINRM_USER:-}
+      WIPERX_WINRM_PASS: ${WIPERX_WINRM_PASS:-}
+      WIPERX_SIGN_KEY: /app/keys/wiperx_sign_key.pem
+    volumes:
+      - reports:/app/reports
+      - logs:/app/logs
+      - cases:/app/cases
+      - keys:/app/keys
+      # Optional: mount a host directory read-write for erase/recovery
+      # targets so paths given to the eraser/recovery UI resolve inside
+      # the container. Uncomment and point at whatever you're testing:
+      # - /path/on/host:/data
+    # Uncomment ONE of these to allow real drive wipes (see note above):
+    # privileged: true
+    # devices:
+    #   - "/dev/sdb:/dev/sdb"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/auth/login')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  nginx:
+    image: nginx:1.27-alpine
+    depends_on:
+      - web
+    ports:
+      - "${WIPERX_HTTP_PORT:-8080}:80"
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    restart: unless-stopped
+
+volumes:
+  reports:
+  logs:
+  cases:
+  keys:

@@ -42,6 +42,9 @@ mutagen==1.47.0            # audio/video container validator
 #   Linux:  apt install sleuthkit testdisk libmagic1 nvme-cli hdparm util-linux
 #   macOS:  brew install sleuthkit libmagic   (dev host only; runtime target is Linux)
 
+# Production WSGI server (see docs/ROADMAP.md Docker Compose deployment)
+gunicorn==21.2.0
+
 # Testing
 pytest==8.1.1
 pytest-mock==3.12.0
