@@ -316,7 +316,10 @@ Examples:
 | LinuxSSD-BlkDiscard | `blkdiscard + dd zero`             | SATA SSD         | TRIM + full zero. Use hdparm for full SE       |
 | LinuxNVMe-Format    | `nvme format --ses=1`              | NVMe SSD         | Controller-level cryptographic erase           |
 | LinuxUSB-DD         | `dd if=/dev/zero of=/dev/sdX bs=1M`| USB drives       | Full sector overwrite                          |
+| LinuxSATA-HdparmSecureErase | `hdparm --security-erase` | SATA SSD/HDD | True hardware-level ATA Secure Erase (`--method ata-secure-erase`); manufacturer-grade, reaches remapped/over-provisioned cells software overwrite can't |
 | Windows-DiskPart    | `diskpart clean all`               | Windows all disks| Full zero write; cannot wipe active OS disk   |
+
+Before any Linux wipe, a SMART health pre-check (`core/smart_check.py`, `smartctl -H`) runs automatically and advisory-only — it never blocks a wipe, but logs a warning if the drive already reports failing health. Run it standalone with `wiperx smart <disk>`.
 
 ### Multi-Pass Modes (`core/wipe_passes.py`)
 
@@ -442,11 +445,10 @@ For wiping system disks in a production environment:
 
 ## Future Improvements
 
-Shipped since the table below was first written: multi-pass DoD/Gutmann/NIST-Purge modes (`core/wipe_passes.py`), tamper-evident report signing (`core/report_signer.py`, Ed25519 rather than HMAC — stronger, and covers wipe/erase/recovery reports uniformly, not just audit logs), and the Secure File & Folder Eraser + Advanced File Carving & Recovery modules themselves. See [`docs/ROADMAP.md`](docs/ROADMAP.md) for current, actively-maintained status. Remaining open items:
+Shipped since the table below was first written: multi-pass DoD/Gutmann/NIST-Purge modes (`core/wipe_passes.py`), tamper-evident report signing (`core/report_signer.py`, Ed25519 rather than HMAC — stronger, and covers wipe/erase/recovery reports uniformly, not just audit logs), the Secure File & Folder Eraser + Advanced File Carving & Recovery modules, hdparm ATA Secure Erase, a SMART pre-wipe health check, Docker Compose deployment (see [Deployment](#deployment) below), and the full doc set under `docs/`. See [`docs/ROADMAP.md`](docs/ROADMAP.md) for current, actively-maintained status. Remaining open items:
 
 | Feature | Priority | Description |
 |---------|----------|-------------|
-| hdparm ATA Secure Erase | High | True hardware-level SSD erase via hdparm |
 | Disk progress bar | Medium | Parse dd status=progress output for real-time % |
 | Concurrent wipe | Medium | Thread pool for wiping multiple disks simultaneously |
 | Database backend | High | Replace in-memory stores with PostgreSQL |
@@ -454,10 +456,14 @@ Shipped since the table below was first written: multi-pass DoD/Gutmann/NIST-Pur
 | S3 report upload | Medium | Push reports to immutable cloud storage |
 | Wipe scheduling | Medium | Schedule future wipes via APScheduler |
 | REST API | Medium | Full JSON API for integration with asset management |
-| Docker compose | Medium | Containerized deployment with Nginx reverse proxy |
 | SIEM integration | High | Direct log forwarding to Splunk/Elastic |
-| Disk health pre-check | Low | SMART status verification before wipe |
-| User manual / technical docs / performance eval report | High | Formal deliverables required by SIH26149, not yet written |
+| Bootable ISO / PXE | High | Wiping the running OS disk — the one limitation no software wiper can solve locally |
+
+## Deployment
+
+`docker compose up --build` (needs a `.env` with at least `WIPERX_SECRET_KEY=...`) runs the app behind an Nginx reverse proxy on port 8080, with `reports/`, `logs/`, `cases/`, and `keys/` as named volumes so certificates and the signing key survive a container recreate. See `Dockerfile`, `docker-compose.yml`, and `deploy/nginx.conf`.
+
+Module 1 (drive wipe) needs real access to host block devices — the compose file documents, but does not enable by default, either `privileged: true` or a scoped `devices:` grant for this. Modules 2 and 3 need neither; verified in this repo's own benchmark and demo tooling (`tools/bench_erase_recovery.py`, `tools/demo_recover.sh`), which run rootless against plain files.
 
 ---
 

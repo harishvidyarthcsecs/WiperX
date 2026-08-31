@@ -29,19 +29,30 @@ Status as of 2026-08-31. See `docs/SIH26149_GAP_ANALYSIS.md` for the problem-sta
   This is also the natural basis for the SIH live-demo script — it already narrates itself ("plain rm leaves data recoverable, wiperx erase-file + wipe-free doesn't").
 - A parallel recovery-side demo (recover a deliberately-deleted file from the same image, show classification/confidence/signed case report) doesn't exist as a script yet — worth adding alongside `demo_erase.sh` for a complete "erase vs. recover" pitch.
 
+## Done in the follow-up session (2026-08-31, later same day)
+
+All of Part A above (docs + recovery demo script) landed, plus 3 backlog items, each verified for real, not just authored:
+
+| Item | Verification |
+|---|---|
+| `docs/PERFORMANCE_EVALUATION.md`, `docs/TECHNICAL_DOCUMENTATION.md`, `docs/USER_MANUAL.md` | Manual has 13 real screenshots captured via Playwright against a live `python run.py` instance, including an actual erase run and an actual ~103s recovery run through the browser UI |
+| `tools/demo_recover.sh` | Actually executed end-to-end (not just read-verified like `demo_erase.sh`) — needs no root at all; recovered a deliberately-deleted file, confirmed byte-exact content, verified the signed case report |
+| **Bug found + fixed**: `web/templates/recovery/case.html` crashed with a 500 on any case containing a filesystem-undelete record (the common case — not just carved files), because it assumed every record has an `offset` field. Fixed, and covered by a new regression test (`tests/test_web.py::test_recovery_case_view_renders_fs_recovered_record`) that specifically exercises an `fs`-method record | 82/82 tests passing after the fix; found via the screenshot-capture work itself, not a separate audit |
+| **hdparm ATA Secure Erase** | `core/strategies/LinuxHdparmSecureEraseStrategy` — frozen-drive detection, unsupported-feature detection, clean failure handling; 9 new tests, all passing |
+| **Docker Compose deployment** | `Dockerfile` + `docker-compose.yml` + `deploy/nginx.conf` — actually built (`docker build`) and run (`docker run`), health-checked, confirmed hdparm/mkfs.ext4/debugfs/nvme/fls all present in the image. One real bug found and fixed along the way: `psutil` needs `gcc`/`python3-dev` to compile on this base image, not present by default. `docker-compose.yml` itself validated for YAML correctness (no `docker compose` plugin installed in this environment to run `config` directly) |
+| **SMART health pre-check** | `core/smart_check.py` — advisory-only `smartctl -H -A` wrapper, wired into `execute_wipe()` as a non-blocking pre-check and exposed standalone as `wiperx smart <disk>`; 5 new tests, all passing |
+
+Also fixed along the way: two stale `requirements.txt` pins that blocked `pip install` in a fresh venv have been carried forward from the prior session's fix (`pytsk3`, `Pillow`), and `gunicorn` was added as the production WSGI dependency the README's Quick Setup already referenced but `requirements.txt` never listed.
+
 ## Backlog (lower priority, not started)
 
-From the original README roadmap, still open after Module 2/3 landed:
-
-- **hdparm ATA Secure Erase** — true hardware-level SSD erase (High)
 - **Database backend** — replace in-memory stores with PostgreSQL (High)
 - **LDAP/AD auth** — enterprise SSO (High)
 - **SIEM integration** — forward audit logs to Splunk/Elastic (High)
-- **Disk progress bar**, **concurrent wipe**, **S3 report upload**, **wipe scheduling**, **REST API**, **Docker Compose deployment** (Medium)
-- **SMART health pre-check** (Low)
+- **Disk progress bar**, **concurrent wipe**, **S3 report upload**, **wipe scheduling**, **REST API** (Medium)
 - **Bootable ISO / PXE** for wiping the running OS disk — the one limitation no software wiper can solve locally; README already documents the DRBL/FOG/WinPE approach but nothing is built
-- A recovery-side demo script (see above)
+- A `docker compose config` validation pass once the compose plugin is available in a dev environment (only Dockerfile-level build/run was verified this session)
 
 ## Timeline note
 
-SIH26149 deadline: **20 September 2026**. Steps 5 (docs) and 7 (demo) are the realistic path to a submission-ready state — the code itself is already functionally complete and tested for all three required modules.
+SIH26149 deadline: **20 September 2026**. As of this session: all three required modules are implemented, tested (96/96), documented (user manual with real screenshots, technical docs, performance evaluation with real benchmark numbers), containerized, and have a working demo script for both the erase and recovery sides. Remaining realistic pre-submission work is `main` → `origin` push (currently local-only, pending explicit go-ahead) and, time permitting, the backlog above.

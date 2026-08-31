@@ -48,6 +48,10 @@ These would otherwise have been my top recommendations — turns out they're bui
 - **Live SSE log streaming** for long-running recovery jobs in the web UI
 - `tools/make_demo_image.sh` + `tools/demo_erase.sh` — ready-made demo scaffolding for a live SIH pitch
 
+## Extras added in the follow-up session (2026-08-31)
+
+hdparm ATA Secure Erase (`core/strategies/LinuxHdparmSecureEraseStrategy`, `--method ata-secure-erase`), a SMART pre-wipe health check (`core/smart_check.py`, advisory-only), and a Docker Compose deployment (`docker-compose.yml` + Nginx) — all three were on the "extras still worth considering" list and are now implemented and tested. See `docs/ROADMAP.md` for verification details.
+
 ## Extras still worth considering (not built, lower priority — see ROADMAP.md)
 
-hdparm ATA Secure Erase for true hardware-level SSD erase, a bootable ISO/PXE story for wiping the running OS disk (the one limitation no software wiper can solve locally), SIEM export, concurrent multi-disk wipes, SMART health pre-check.
+A bootable ISO/PXE story for wiping the running OS disk (the one limitation no software wiper can solve locally), SIEM export, concurrent multi-disk wipes.
