@@ -75,7 +75,13 @@
                         {% endif %}
                     </td>
                     <td><code>{{ f.recovered_name }}</code>
-                        <div class="small text-muted">{{ f.signature }} @ {{ "%#x"|format(f.offset) }}</div>
+                        <div class="small text-muted">
+                            {% if f.offset is defined %}
+                                {{ f.signature }} @ {{ "%#x"|format(f.offset) }}
+                            {% elif f.original_path is defined %}
+                                filesystem: {{ f.original_path }}
+                            {% endif %}
+                        </div>
                     </td>
                     <td>{{ f.category }}</td>
                     <td>{{ f.size }}</td>
