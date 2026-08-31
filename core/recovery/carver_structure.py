@@ -59,9 +59,15 @@ def _jpeg(buf: bytes) -> Optional[int]:
             return pos + 2
         if marker == 0xDA:  # SOS -> entropy-coded data until next real marker
             pos += 2
+            zrun = 0
             while pos + 1 < n:
                 if buf[pos] == 0xFF and buf[pos + 1] not in (0x00, *range(0xD0, 0xD8)):
                     break
+                # a long raw-zero run is not JPEG entropy - the file is
+                # fragmented; let the bifragment carver handle it.
+                zrun = zrun + 1 if buf[pos] == 0x00 else 0
+                if zrun >= 24:
+                    return None
                 pos += 1
             continue
         if pos + 4 > n:

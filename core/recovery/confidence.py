@@ -19,7 +19,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, Optional
 
-_METHOD_WEIGHT = {"structure": 0.45, "footer": 0.35, "max-size": 0.15}
+_METHOD_WEIGHT = {
+    "structure": 0.45,
+    "bifragment": 0.40,   # validated two-fragment reassembly
+    "footer": 0.35,
+    "max-size": 0.15,
+}
 _VALIDATION_DELTA = {"intact": 0.40, "partial": 0.18, "unchecked": 0.05, "corrupt": -0.25}
 
 

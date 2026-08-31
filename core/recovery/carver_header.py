@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, List, Optional, Sequence, Tuple
 
-from core.recovery import carver_structure
+from core.recovery import carver_fragment, carver_structure
 from core.recovery.signatures import MAX_HEADER_LEN, Signature, iter_header_hits
 
 logger = logging.getLogger(__name__)
@@ -61,22 +61,25 @@ def _in_ranges(offset: int, ranges: Sequence[Tuple[int, int]]) -> bool:
     return False
 
 
-def _determine_end(source, offset: int, sig: Signature) -> Tuple[int, str, bool]:
-    """Return (absolute_end, method, footer_found) for a header at `offset`."""
+def _determine_end(source, offset: int, sig: Signature) -> Tuple[int, str, bool, bytes]:
+    """Return (absolute_end, method, footer_found, probe_buf) for a header at `offset`."""
     probe_len = min(sig.max_bytes, _PROBE_CAP, source.size - offset)
     buf = source.read(offset, probe_len)
 
     end_rel = carver_structure.refine_end(buf, sig.structure)
     if end_rel and sig.min_bytes <= end_rel <= len(buf):
-        return offset + end_rel, "structure", True
+        return offset + end_rel, "structure", True, buf
 
     if sig.footer:
         fpos = buf.find(sig.footer, sig.min_bytes)
         if fpos != -1:
-            end_rel = fpos + len(sig.footer) + sig.footer_tail
-            return offset + min(end_rel, len(buf)), "footer", True
+            # A long raw-zero run before the footer means a JPEG is
+            # fragmented; skip the footer so the bifragment carver runs.
+            if not (sig.name == "jpeg" and b"\x00" * 32 in buf[2:fpos]):
+                end_rel = fpos + len(sig.footer) + sig.footer_tail
+                return offset + min(end_rel, len(buf)), "footer", True, buf
 
-    return offset + len(buf), "max-size", False
+    return offset + len(buf), "max-size", False, buf
 
 
 def carve(
@@ -123,13 +126,30 @@ def carve(
             if _in_ranges(abs_off, claimed) or _in_ranges(abs_off, allocated):
                 continue
 
-            end, method, footer_found = _determine_end(source, abs_off, sig)
-            size = end - abs_off
+            end, method, footer_found, probe = _determine_end(source, abs_off, sig)
+
+            carved_bytes = None
+            frag_note = ""
+            if method == "max-size" and sig.name == "jpeg":
+                # footerless JPEG carve == probable fragmentation; try to
+                # reassemble two fragments across a gap.
+                frag = carver_fragment.carve_bifragment_jpeg(probe)
+                if frag.recovered is not None:
+                    carved_bytes = frag.recovered
+                    method = "bifragment"
+                    footer_found = True
+                    end = abs_off + frag.frag2_start + frag.frag2_len
+                    frag_note = (
+                        f"bifragment reassembly: gap {frag.gap_start}..{frag.frag2_start} "
+                        f"({frag.scan_candidates} splices tried)"
+                    )
+
+            size = len(carved_bytes) if carved_bytes is not None else end - abs_off
             if size < sig.min_bytes:
                 continue
 
             seq += 1
-            data = source.read(abs_off, size)
+            data = carved_bytes if carved_bytes is not None else source.read(abs_off, size)
             digest = hashlib.sha256(data).hexdigest()
             fname = f"{seq:06d}_{abs_off:012x}.{sig.ext}"
             fpath = recovered / fname
@@ -140,7 +160,9 @@ def carve(
                 category=sig.category, method=method, footer_found=footer_found,
                 sha256=digest, path=str(fpath), size=size,
             )
-            if method == "max-size":
+            if frag_note:
+                cf.notes.append(frag_note)
+            elif method == "max-size":
                 cf.notes.append("no footer / structural end found; carve is size-capped")
             carved.append(cf)
             claimed.append((abs_off, end))

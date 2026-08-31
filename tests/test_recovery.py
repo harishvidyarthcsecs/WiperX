@@ -7,6 +7,7 @@ deterministic case report.
 
 import hashlib
 import io
+import os
 import zipfile
 
 import pytest
@@ -66,9 +67,40 @@ def _build_image(tmp_path):
     return img, placed, assets
 
 
+def _noisy_jpeg(side=160, quality=88):
+    img = Image.frombytes("RGB", (side, side), os.urandom(side * side * 3))
+    buf = io.BytesIO()
+    img.save(buf, "JPEG", quality=quality)
+    return buf.getvalue()
+
+
 def test_open_source_rejects_missing(tmp_path):
     with pytest.raises(SourceError):
         open_source(str(tmp_path / "nope.img"))
+
+
+def test_fragmented_jpeg_is_reassembled(tmp_path):
+    jpg = _noisy_jpeg()
+    bs = 512
+    cut = ((len(jpg) // 2) // bs) * bs
+
+    blob = bytearray(b"\x00" * (128 * 1024))
+    start = len(blob)
+    blob.extend(jpg[:cut])
+    blob.extend(b"\x00" * (bs * 4))          # fragmentation gap
+    blob.extend(jpg[cut:])
+    blob.extend(b"\x00" * 8192)
+    img = tmp_path / "frag.img"
+    img.write_bytes(blob)
+
+    res = service.recover(str(img), str(tmp_path / "casef"),
+                          operator="pytest", carve_only=True)
+
+    rec = next((r for r in res["records"] if r.get("carve_method") == "bifragment"), None)
+    assert rec is not None, res["records"]
+    assert rec["sha256"] == hashlib.sha256(jpg).hexdigest()
+    assert rec["offset"] == start
+    assert rec["confidence_band"] in ("high", "medium")
 
 
 def test_carve_recovers_known_payloads(tmp_path):
