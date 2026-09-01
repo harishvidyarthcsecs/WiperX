@@ -1,0 +1,266 @@
+@import "./tokens.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ---------------------------------------------------------------- fonts --- */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/static/fonts/inter-variable.woff2") format("woff2");
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("/static/fonts/jetbrains-mono-variable.woff2") format("woff2");
+}
+
+/* ----------------------------------------------------------------- base --- */
+@layer base {
+  * {
+    border-color: hsl(var(--border));
+  }
+  html {
+    -webkit-text-size-adjust: 100%;
+    font-feature-settings: "cv05" 1, "cv08" 1, "ss01" 1;
+  }
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: theme("fontFamily.sans");
+    font-size: 0.875rem;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+  ::selection {
+    background: hsl(var(--primary) / 0.22);
+  }
+  /* tabular figures everywhere data lives */
+  table, .tabular, code, kbd, .font-mono {
+    font-variant-numeric: tabular-nums;
+  }
+  h1, h2, h3, h4 {
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: hsl(var(--foreground));
+  }
+  a {
+    color: inherit;
+  }
+  /* thin custom scrollbars — instrument feel */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+  *::-webkit-scrollbar { width: 10px; height: 10px; }
+  *::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+}
+
+/* ----------------------------------------------------------- components --- */
+@layer components {
+
+  /* eyebrow: monospaced label + rule. Encodes which module / standard a panel
+     implements, e.g. "MODULE 01 · NIST SP 800-88". */
+  .wx-eyebrow {
+    @apply flex items-center gap-3 font-mono text-[0.6875rem] uppercase tracking-[0.14em] text-muted-foreground;
+  }
+  .wx-eyebrow::after {
+    content: "";
+    @apply h-px flex-1 bg-border;
+  }
+
+  /* signature status rail — a hairline on the leading edge of any operation
+     surface, encoding state. */
+  .wx-rail {
+    @apply relative pl-4;
+  }
+  .wx-rail::before {
+    content: "";
+    @apply absolute left-0 top-0 bottom-0 w-[3px] rounded-full bg-border;
+  }
+  .wx-rail-idle::before      { @apply bg-border; }
+  .wx-rail-active::before    { @apply bg-accent animate-pulse-ring; }
+  .wx-rail-verified::before  { @apply bg-success; }
+  .wx-rail-blocked::before   { @apply bg-destructive; }
+  .wx-rail-danger::before    { @apply bg-destructive; }
+
+  /* card */
+  .wx-card {
+    @apply rounded-lg border border-border bg-card text-card-foreground;
+  }
+  .wx-card-header {
+    @apply flex items-center justify-between gap-3 border-b border-border px-4 py-3;
+  }
+  .wx-card-title {
+    @apply text-sm font-semibold;
+  }
+  .wx-card-body { @apply p-4; }
+  .wx-card-body-flush { @apply p-0; }
+
+  /* buttons */
+  .wx-btn {
+    @apply inline-flex select-none items-center justify-center gap-2 whitespace-nowrap rounded-md
+           border border-transparent px-3 py-2 text-sm font-medium transition-colors
+           disabled:pointer-events-none disabled:opacity-50;
+  }
+  .wx-btn svg { @apply h-4 w-4 shrink-0; }
+  .wx-btn-primary {
+    @apply bg-primary text-primary-foreground hover:bg-primary/90;
+  }
+  .wx-btn-secondary {
+    @apply border-border bg-secondary text-secondary-foreground hover:bg-muted;
+  }
+  .wx-btn-ghost {
+    @apply text-foreground hover:bg-muted;
+  }
+  .wx-btn-outline {
+    @apply border-border bg-transparent text-foreground hover:bg-muted;
+  }
+  .wx-btn-destructive {
+    @apply bg-destructive text-destructive-foreground hover:bg-destructive/90;
+  }
+  .wx-btn-sm { @apply px-2.5 py-1.5 text-xs; }
+  .wx-btn-sm svg { @apply h-3.5 w-3.5; }
+  .wx-btn-icon { @apply p-2; }
+
+  /* form controls */
+  .wx-label {
+    @apply mb-1.5 block text-xs font-medium text-muted-foreground;
+  }
+  .wx-input,
+  .wx-select,
+  .wx-textarea {
+    @apply block w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground
+           shadow-sm transition-colors placeholder:text-muted-foreground
+           focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/30
+           disabled:cursor-not-allowed disabled:opacity-60;
+  }
+  .wx-textarea { @apply min-h-[6rem] font-mono text-[0.8125rem] leading-relaxed; }
+  .wx-hint { @apply mt-1 text-xs text-muted-foreground; }
+  .wx-check {
+    @apply h-4 w-4 rounded border-input bg-background text-primary
+           focus:ring-2 focus:ring-ring/40 focus:ring-offset-0;
+  }
+
+  /* badges — status semantics */
+  .wx-badge {
+    @apply inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[0.6875rem] font-medium;
+  }
+  .wx-badge-neutral   { @apply border-border bg-muted text-muted-foreground; }
+  .wx-badge-verified  { @apply border-success/30 bg-success/10 text-success; }
+  .wx-badge-untrusted { @apply border-warning/40 bg-warning/10 text-warning; }
+  .wx-badge-unsigned  { @apply border-destructive/30 bg-destructive/10 text-destructive; }
+  .wx-badge-running   { @apply border-accent/40 bg-accent/10 text-accent; }
+  .wx-badge-blocked   { @apply border-destructive/30 bg-destructive/10 text-destructive; }
+  .wx-badge-info      { @apply border-info/30 bg-info/10 text-info; }
+  .wx-badge-dot::before {
+    content: "";
+    @apply h-1.5 w-1.5 rounded-full bg-current;
+  }
+
+  /* tables */
+  .wx-table {
+    @apply w-full text-left text-sm;
+  }
+  .wx-table thead th {
+    @apply border-b border-border px-3 py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground;
+  }
+  .wx-table tbody td {
+    @apply border-b border-border/60 px-3 py-2.5 align-middle;
+  }
+  .wx-table tbody tr:last-child td { @apply border-b-0; }
+  .wx-table tbody tr:hover { @apply bg-muted/50; }
+  .wx-table .mono { @apply font-mono text-[0.8125rem]; }
+
+  /* key/value definition rows */
+  .wx-dl { @apply grid grid-cols-[minmax(9rem,auto)_1fr] gap-x-4 gap-y-2.5 text-sm; }
+  .wx-dl dt { @apply text-muted-foreground; }
+  .wx-dl dd { @apply font-mono text-[0.8125rem] break-all; }
+
+  /* stat tile */
+  .wx-stat {
+    @apply wx-card wx-rail wx-rail-idle flex flex-col gap-1 p-4;
+  }
+  .wx-stat-label { @apply font-mono text-[0.6875rem] uppercase tracking-[0.12em] text-muted-foreground; }
+  .wx-stat-value { @apply text-2xl font-semibold tabular-nums; }
+
+  /* log / SSE console */
+  .wx-console {
+    @apply h-[26rem] overflow-y-auto rounded-md border border-border bg-[hsl(var(--muted))] p-3
+           font-mono text-[0.8125rem] leading-relaxed;
+  }
+  .wx-console .ln-error   { @apply text-destructive; }
+  .wx-console .ln-warning { @apply text-warning; }
+  .wx-console .ln-success { @apply text-success; }
+  .wx-console .ln-info    { @apply text-info; }
+  .wx-console .ln-muted   { @apply text-muted-foreground; }
+
+  /* callouts */
+  .wx-callout {
+    @apply flex gap-3 rounded-md border p-3 text-sm;
+  }
+  .wx-callout svg { @apply h-4 w-4 shrink-0 translate-y-0.5; }
+  .wx-callout-info      { @apply border-info/30 bg-info/5 text-foreground; }
+  .wx-callout-warning   { @apply border-warning/40 bg-warning/5 text-foreground; }
+  .wx-callout-danger    { @apply border-destructive/30 bg-destructive/5 text-foreground; }
+
+  /* app shell */
+  .wx-sidebar {
+    @apply -translate-x-full transition-transform lg:translate-x-0;
+  }
+  .wx-sidebar.wx-sidebar-open { @apply translate-x-0; }
+
+  .wx-nav-link {
+    @apply flex items-center gap-2.5 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors
+           hover:bg-muted hover:text-foreground;
+  }
+  .wx-nav-link[aria-current="page"] {
+    @apply bg-primary/10 font-medium text-foreground;
+  }
+  .wx-nav-link[aria-current="page"] svg { @apply text-primary; }
+  .wx-nav-link svg { @apply h-4 w-4 shrink-0; }
+  .wx-nav-section {
+    @apply px-3 pb-1 pt-4 font-mono text-[0.625rem] uppercase tracking-[0.16em] text-muted-foreground/70;
+  }
+
+  .wx-kbd {
+    @apply inline-flex min-w-[1.5rem] items-center justify-center rounded border border-border
+           bg-muted px-1.5 py-0.5 font-mono text-[0.6875rem] text-muted-foreground;
+  }
+
+  .wx-link {
+    @apply font-medium text-primary underline-offset-4 hover:underline;
+  }
+
+  .wx-empty {
+    @apply flex flex-col items-center gap-2 px-6 py-12 text-center text-sm text-muted-foreground;
+  }
+  .wx-empty svg { @apply h-8 w-8 opacity-50; }
+
+  .wx-skeleton {
+    @apply animate-pulse rounded bg-muted;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

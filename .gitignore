@@ -39,3 +39,6 @@ htmlcov/
 .vscode/
 .idea/
 .DS_Store
+
+# Node (web UI build tooling)
+node_modules/

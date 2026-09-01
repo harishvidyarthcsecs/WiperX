@@ -1,0 +1,121 @@
+/* WiperX design tokens — instrument-panel palette.
+ * Primitives resolve to semantic tokens; semantic tokens are the only thing
+ * templates and component classes reference. HSL channels (no hsl() wrapper) so
+ * Tailwind can apply <alpha-value>.
+ *
+ * Accent discipline:
+ *   --primary      steel blue — interactive, navigation, focus. Calm, not alarming.
+ *   --accent       amber      — "signal": a live/running operation. Used sparingly.
+ *   --destructive  red        — RESERVED for irreversible destruction (drive/file wipe).
+ */
+
+:root {
+  --background: 210 20% 98%;
+  --foreground: 215 28% 14%;
+
+  --card: 0 0% 100%;
+  --card-foreground: 215 28% 14%;
+
+  --popover: 0 0% 100%;
+  --popover-foreground: 215 28% 14%;
+
+  --muted: 210 17% 95%;
+  --muted-foreground: 215 14% 40%;
+
+  --border: 214 20% 87%;
+  --input: 214 20% 82%;
+  --ring: 215 60% 45%;
+
+  --primary: 215 58% 32%;
+  --primary-foreground: 210 40% 98%;
+
+  --secondary: 210 17% 93%;
+  --secondary-foreground: 215 25% 22%;
+
+  --accent: 32 94% 44%;
+  --accent-foreground: 32 90% 12%;
+
+  --destructive: 0 70% 44%;
+  --destructive-foreground: 0 0% 100%;
+
+  --success: 152 46% 34%;
+  --success-foreground: 0 0% 100%;
+
+  --warning: 32 90% 44%;
+  --warning-foreground: 32 90% 10%;
+
+  --info: 208 66% 40%;
+  --info-foreground: 0 0% 100%;
+
+  --radius: 0.5rem;
+}
+
+:root[data-theme="dark"],
+.dark {
+  --background: 220 26% 9%;
+  --foreground: 210 18% 90%;
+
+  --card: 220 21% 12%;
+  --card-foreground: 210 18% 90%;
+
+  --popover: 220 21% 12%;
+  --popover-foreground: 210 18% 90%;
+
+  --muted: 220 16% 16%;
+  --muted-foreground: 215 14% 62%;
+
+  --border: 220 15% 20%;
+  --input: 220 15% 26%;
+  --ring: 205 70% 55%;
+
+  --primary: 205 72% 62%;
+  --primary-foreground: 220 32% 10%;
+
+  --secondary: 220 16% 18%;
+  --secondary-foreground: 210 18% 88%;
+
+  --accent: 34 94% 58%;
+  --accent-foreground: 34 90% 10%;
+
+  --destructive: 0 68% 58%;
+  --destructive-foreground: 0 0% 100%;
+
+  --success: 152 48% 50%;
+  --success-foreground: 152 60% 8%;
+
+  --warning: 34 90% 58%;
+  --warning-foreground: 34 90% 10%;
+
+  --info: 205 74% 60%;
+  --info-foreground: 205 60% 8%;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --background: 220 26% 9%;
+    --foreground: 210 18% 90%;
+    --card: 220 21% 12%;
+    --card-foreground: 210 18% 90%;
+    --popover: 220 21% 12%;
+    --popover-foreground: 210 18% 90%;
+    --muted: 220 16% 16%;
+    --muted-foreground: 215 14% 62%;
+    --border: 220 15% 20%;
+    --input: 220 15% 26%;
+    --ring: 205 70% 55%;
+    --primary: 205 72% 62%;
+    --primary-foreground: 220 32% 10%;
+    --secondary: 220 16% 18%;
+    --secondary-foreground: 210 18% 88%;
+    --accent: 34 94% 58%;
+    --accent-foreground: 34 90% 10%;
+    --destructive: 0 68% 58%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 152 48% 50%;
+    --success-foreground: 152 60% 8%;
+    --warning: 34 90% 58%;
+    --warning-foreground: 34 90% 10%;
+    --info: 205 74% 60%;
+    --info-foreground: 205 60% 8%;
+  }
+}

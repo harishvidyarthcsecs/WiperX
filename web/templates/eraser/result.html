@@ -1,73 +1,76 @@
 {% extends "base.html" %}
-{% block title %}Erase Result{% endblock %}
+{% from "components/ui.html" import icon, badge, btn, stat, empty %}
+{% block title %}Erase result{% endblock %}
+{% block nav %}eraser{% endblock %}
+{% block topbar %}<span class="text-sm font-medium">Erase result</span>{% endblock %}
 
 {% block content %}
-<h3 class="mb-3"><i class="bi bi-eraser-fill"></i> Erase Result</h3>
-
 {% set s = result.summary %}
-<div class="row g-3 mb-4">
-  <div class="col-md-3"><div class="card stat-card p-3">
-    <div class="text-muted small">Files</div><div class="h4">{{ s.total if s.total is defined else '-' }}</div></div></div>
-  <div class="col-md-3"><div class="card stat-card p-3">
-    <div class="text-muted small">Succeeded</div><div class="h4 log-success">{{ s.succeeded if s.succeeded is defined else '-' }}</div></div></div>
-  <div class="col-md-3"><div class="card stat-card p-3">
-    <div class="text-muted small">Failed</div><div class="h4 {% if s.failed %}log-error{% endif %}">{{ s.failed if s.failed is defined else '-' }}</div></div></div>
-  <div class="col-md-3"><div class="card stat-card p-3">
-    <div class="text-muted small">Bytes erased</div><div class="h4">{{ s.bytes_erased if s.bytes_erased is defined else '-' }}</div></div></div>
+<div class="mb-6 space-y-1.5">
+  <div class="wx-eyebrow">Module 02 · complete</div>
+  <h1 class="text-xl font-semibold tracking-tight">Erase result</h1>
 </div>
 
-<div class="card p-3 mb-4">
-  <div class="d-flex justify-content-between align-items-center">
-    <div>
-      <div class="text-muted small">Signed certificate</div>
-      <code>{{ cert_name }}</code>
-      <span class="badge ms-2 {% if result.certificate_signed %}badge-ok{% else %}badge-mounted{% endif %}">
-        {{ 'SIGNED' if result.certificate_signed else 'UNSIGNED' }}
-      </span>
-    </div>
-    <a class="btn btn-outline-danger btn-sm" href="{{ url_for('reports.index') }}">
-      <i class="bi bi-file-earmark-text"></i> Reports
-    </a>
-  </div>
+<div class="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+  {{ stat('Files', s.total if s.total is defined else '—') }}
+  {{ stat('Succeeded', s.succeeded if s.succeeded is defined else '—', rail='verified') }}
+  {{ stat('Failed', s.failed if s.failed is defined else '—', rail='danger' if s.failed else 'idle') }}
+  {{ stat('Bytes erased', s.bytes_erased if s.bytes_erased is defined else '—') }}
 </div>
+
+<section class="mb-4 wx-card wx-rail {{ 'wx-rail-verified' if result.certificate_signed else 'wx-rail-blocked' }}">
+  <div class="wx-card-body flex flex-wrap items-center justify-between gap-3">
+    <div class="space-y-1">
+      <p class="text-xs text-muted-foreground">Signed certificate</p>
+      <p class="font-mono text-sm">{{ cert_name }}
+        {% if result.certificate_signed %}{{ badge('signed', 'verified', dot=true) }}{% else %}{{ badge('unsigned', 'unsigned', dot=true) }}{% endif %}
+      </p>
+    </div>
+    {{ btn('Reports', href=url_for('reports.index'), variant='outline', size='wx-btn-sm', icon_name='file-text') }}
+  </div>
+</section>
 
 {% if result.free_space_wipe %}
-<div class="card p-3 mb-4">
-  <div class="text-muted small">Free-space wipe</div>
-  ok={{ result.free_space_wipe.ok }},
-  bytes={{ result.free_space_wipe.bytes_written }},
-  err={{ result.free_space_wipe.error }}
-</div>
+<section class="mb-4 wx-card">
+  <div class="wx-card-body text-sm">
+    <p class="text-xs text-muted-foreground">Free-space wipe</p>
+    <p class="mt-1 font-mono">ok={{ result.free_space_wipe.ok }} · bytes={{ result.free_space_wipe.bytes_written }} · err={{ result.free_space_wipe.error or 'none' }}</p>
+  </div>
+</section>
 {% endif %}
 
-<h5>Log</h5>
-<div class="log-panel mb-4">
-  {% for line in log_lines %}<p class="log-line">{{ line }}</p>{% else %}<p class="log-line text-muted">(no log lines)</p>{% endfor %}
-</div>
+<section class="mb-4 wx-card">
+  <header class="wx-card-header"><h2 class="wx-card-title">Operation log</h2></header>
+  <div class="wx-card-body">
+    <div class="wx-console">
+      {% for line in log_lines %}<div class="ln-muted">{{ line }}</div>{% else %}<div class="ln-muted">(no log lines)</div>{% endfor %}
+    </div>
+  </div>
+</section>
 
 {% if result.files %}
-<h5>Per-file</h5>
-<div class="table-responsive">
-<table class="table table-sm">
-  <thead><tr><th>Path</th><th>Bytes</th><th>Method</th><th>Passes</th><th>Renames</th><th>OK</th><th>Error</th></tr></thead>
-  <tbody>
-  {% for f in result.files %}
-    <tr>
-      <td><code>{{ f.path }}</code></td>
-      <td>{{ f.size_bytes }}</td>
-      <td>{{ f.method }}</td>
-      <td>{{ f.passes }}</td>
-      <td>{{ f.renames }}</td>
-      <td>{% if f.ok %}<span class="log-success">yes</span>{% else %}<span class="log-error">no</span>{% endif %}</td>
-      <td class="small text-muted">{{ f.error or '' }}</td>
-    </tr>
-  {% endfor %}
-  </tbody>
-</table>
-</div>
+<section class="wx-card">
+  <header class="wx-card-header"><h2 class="wx-card-title">Per-file</h2></header>
+  <div class="wx-card-body-flush overflow-x-auto">
+    <table class="wx-table">
+      <thead><tr><th>Path</th><th>Bytes</th><th>Method</th><th>Passes</th><th>Renames</th><th>Result</th><th>Error</th></tr></thead>
+      <tbody>
+        {% for f in result.files %}
+        <tr>
+          <td class="mono text-xs">{{ f.path }}</td>
+          <td class="mono">{{ f.size_bytes }}</td>
+          <td class="mono text-xs">{{ f.method }}</td>
+          <td>{{ f.passes }}</td>
+          <td>{{ f.renames }}</td>
+          <td>{% if f.ok %}{{ badge('ok', 'verified') }}{% else %}{{ badge('failed', 'unsigned') }}{% endif %}</td>
+          <td class="text-xs text-muted-foreground">{{ f.error or '' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
 {% endif %}
 
-<a href="{{ url_for('eraser.index') }}" class="btn btn-secondary">
-  <i class="bi bi-arrow-left"></i> New erase
-</a>
+<div class="mt-6">{{ btn('New erase', href=url_for('eraser.index'), variant='secondary', size='wx-btn-sm', icon_name='chevron-left') }}</div>
 {% endblock %}

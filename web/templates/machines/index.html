@@ -1,87 +1,58 @@
 {% extends "base.html" %}
+{% from "components/ui.html" import icon, badge, btn, empty, csrf_field %}
 {% block title %}Machines{% endblock %}
+{% block nav %}machines{% endblock %}
+{% block topbar %}<span class="text-sm font-medium">Machines</span>{% endblock %}
+
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <h3 style="color:#e74c3c; font-weight:700; letter-spacing:2px">
-        <i class="bi bi-pc-display"></i> REMOTE MACHINES
-    </h3>
-    {% if current_user.can('manage_machines') %}
-    <a href="{{ url_for('machines.add') }}" class="btn btn-danger btn-sm">
-        <i class="bi bi-plus-circle"></i> Add Machine
-    </a>
-    {% endif %}
+<div class="mb-6 flex flex-wrap items-end justify-between gap-4">
+  <div class="space-y-1.5">
+    <div class="wx-eyebrow">Registered SSH / WinRM targets</div>
+    <h1 class="text-xl font-semibold tracking-tight">Remote machines</h1>
+  </div>
+  {% if current_user.can('manage_machines') %}
+  {{ btn('Add machine', href=url_for('machines.add'), variant='primary', size='wx-btn-sm', icon_name='plus') }}
+  {% endif %}
 </div>
 
-<div class="card">
-    <div class="card-body p-0">
-        {% if machines %}
-        <table class="table table-hover mb-0">
-            <thead>
-                <tr>
-                    <th>Hostname</th><th>OS</th><th>Connection</th>
-                    <th>Description</th><th>Status</th><th>Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for m in machines %}
-                <tr>
-                    <td><strong>{{ m.hostname }}</strong></td>
-                    <td>{{ m.os_type.title() }}</td>
-                    <td><span class="badge bg-secondary">{{ m.connection_type.upper() }}</span></td>
-                    <td class="text-muted small">{{ m.description or '—' }}</td>
-                    <td>
-                        <span class="badge {% if m.status == 'online' %}bg-success{% elif m.status == 'offline' %}bg-danger{% else %}bg-secondary{% endif %}"
-                              id="status-{{ m.machine_id }}">
-                            {{ m.status }}
-                        </span>
-                    </td>
-                    <td>
-                        <button class="btn btn-sm btn-outline-secondary me-1"
-                                onclick="testConn('{{ m.machine_id }}')">
-                            <i class="bi bi-wifi"></i>
-                        </button>
-                        <a href="{{ url_for('disks.scan_remote', machine_id=m.machine_id) }}"
-                           class="btn btn-sm btn-outline-primary me-1">
-                            <i class="bi bi-search"></i> Scan
-                        </a>
-                        {% if current_user.can('manage_machines') %}
-                        <form method="POST"
-                              action="{{ url_for('machines.delete', machine_id=m.machine_id) }}"
-                              style="display:inline"
-                              onsubmit="return confirm('Remove this machine?')">
-                            <button type="submit" class="btn btn-sm btn-outline-danger">
-                                <i class="bi bi-trash"></i>
-                            </button>
-                        </form>
-                        {% endif %}
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        {% else %}
-        <div class="text-center text-muted py-5">
-            <i class="bi bi-pc-display" style="font-size:3rem"></i>
-            <p class="mt-3">No machines registered.</p>
-            <a href="{{ url_for('machines.add') }}" class="btn btn-outline-secondary btn-sm">Add Machine</a>
-        </div>
-        {% endif %}
+<section class="wx-card">
+  <div class="wx-card-body-flush">
+    {% if machines %}
+    <div class="overflow-x-auto">
+      <table class="wx-table">
+        <thead><tr><th>Hostname</th><th>OS</th><th>Connection</th><th>Description</th><th>Status</th><th class="text-right">Actions</th></tr></thead>
+        <tbody>
+          {% for m in machines %}
+          <tr>
+            <td class="font-medium">{{ m.hostname }}</td>
+            <td class="text-muted-foreground">{{ m.os_type.title() }}</td>
+            <td>{{ badge(m.connection_type.upper(), 'neutral') }}</td>
+            <td class="text-muted-foreground">{{ m.description or '—' }}</td>
+            <td>
+              <span id="status-{{ m.machine_id }}" class="wx-badge {{ 'wx-badge-verified' if m.status == 'online' else ('wx-badge-unsigned' if m.status == 'offline' else 'wx-badge-neutral') }}">{{ m.status }}</span>
+            </td>
+            <td>
+              <div class="flex items-center justify-end gap-1">
+                <button class="wx-btn wx-btn-outline wx-btn-sm wx-btn-icon" data-wx-test-conn="{{ url_for('machines.test_connection', machine_id=m.machine_id) }}" data-target="status-{{ m.machine_id }}" aria-label="Test connection">{{ icon('wifi') }}</button>
+                <a class="wx-btn wx-btn-outline wx-btn-sm" href="{{ url_for('disks.scan_remote', machine_id=m.machine_id) }}">{{ icon('search') }} Scan</a>
+                {% if current_user.can('manage_machines') %}
+                <form method="POST" action="{{ url_for('machines.delete', machine_id=m.machine_id) }}" class="inline" onsubmit="return confirm('Remove this machine?')">
+                  {{ csrf_field() }}
+                  <button type="submit" class="wx-btn wx-btn-outline wx-btn-sm wx-btn-icon" aria-label="Remove">{{ icon('trash-2') }}</button>
+                </form>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
-</div>
-
-{% block extra_js %}
-<script>
-function testConn(machineId) {
-    const badge = document.getElementById("status-" + machineId);
-    badge.textContent = "testing...";
-    badge.className = "badge bg-warning";
-    fetch("/machines/test/" + machineId)
-        .then(r => r.json())
-        .then(data => {
-            badge.textContent = data.status;
-            badge.className = "badge " + (data.status === "online" ? "bg-success" : "bg-danger");
-        });
-}
-</script>
-{% endblock %}
+    {% else %}
+    {% call empty('No machines registered.', 'server') %}
+      <a class="wx-link" href="{{ url_for('machines.add') }}">Add a machine</a>
+    {% endcall %}
+    {% endif %}
+  </div>
+</section>
 {% endblock %}

@@ -1,0 +1,25 @@
+{% from "components/ui.html" import icon %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
+  <meta name="csrf-token" content="{{ csrf_token() }}">
+  <title>{% block title %}Sign in{% endblock %} · WiperX</title>
+  <link rel="preload" as="font" type="font/woff2" href="{{ asset('fonts/inter-variable.woff2') }}" crossorigin>
+  <link rel="preload" as="font" type="font/woff2" href="{{ asset('fonts/jetbrains-mono-variable.woff2') }}" crossorigin>
+  <link rel="stylesheet" href="{{ asset('css/app.css') }}">
+  <script src="{{ asset('js/theme-init.js') }}"></script>
+</head>
+<body class="grid min-h-screen place-items-center p-4">
+  <div class="w-full max-w-sm">
+    <div class="mb-6 flex items-center gap-2.5">
+      <span class="text-primary">{{ icon('shield-check', 'h-7 w-7') }}</span>
+      <span class="font-mono text-lg font-bold tracking-[0.24em]">WIPERX</span>
+    </div>
+    {% block content %}{% endblock %}
+  </div>
+  <script defer src="{{ asset('js/app.js') }}"></script>
+</body>
+</html>

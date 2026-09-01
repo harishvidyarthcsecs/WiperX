@@ -1,57 +1,47 @@
 {% extends "base.html" %}
-{% block title %}Recovery Cases{% endblock %}
+{% from "components/ui.html" import icon, badge, empty %}
+{% block title %}Recovery cases{% endblock %}
+{% block nav %}cases{% endblock %}
+{% block topbar %}<span class="text-sm font-medium">Recovery cases</span>{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <h3 class="mb-0" style="color:#e74c3c; font-weight:700; letter-spacing:2px">
-        <i class="bi bi-folder2-open"></i> RECOVERY CASES
-    </h3>
-    <a href="{{ url_for('recovery.index') }}" class="btn btn-danger btn-sm">
-        <i class="bi bi-plus-circle"></i> New Recovery
-    </a>
+<div class="mb-6 flex flex-wrap items-end justify-between gap-4">
+  <div class="space-y-1.5">
+    <div class="wx-eyebrow">Signed forensic case reports</div>
+    <h1 class="text-xl font-semibold tracking-tight">Recovery cases</h1>
+  </div>
+  <a href="{{ url_for('recovery.index') }}" class="wx-btn wx-btn-primary wx-btn-sm">{{ icon('life-buoy') }} New recovery</a>
 </div>
 
-<div class="card">
-    <div class="card-body p-0">
-        {% if cases %}
-        <table class="table table-hover mb-0">
-            <thead><tr>
-                <th>Case</th><th>Files</th><th>Operator</th><th>Generated</th>
-                <th>Signature</th><th></th>
-            </tr></thead>
-            <tbody>
-                {% for c in cases %}
-                <tr>
-                    <td><code>{{ c.name }}</code></td>
-                    <td>{{ c.total }}</td>
-                    <td>{{ c.operator }}</td>
-                    <td class="small text-muted">{{ c.generated_at }}</td>
-                    <td>
-                        {% if c.valid and c.trusted %}
-                            <span class="badge bg-success">verified</span>
-                        {% elif c.valid %}
-                            <span class="badge" style="background:#f39c12">signed (untrusted key)</span>
-                        {% else %}
-                            <span class="badge bg-danger">unsigned / invalid</span>
-                        {% endif %}
-                    </td>
-                    <td>
-                        <a href="{{ url_for('recovery.case_detail', name=c.name) }}"
-                           class="btn btn-sm btn-outline-primary">
-                            <i class="bi bi-eye"></i> View
-                        </a>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        {% else %}
-        <div class="text-center text-muted py-5">
-            <i class="bi bi-folder2" style="font-size:2rem"></i>
-            <p class="mt-2 mb-3">No recovery cases yet.</p>
-            <a href="{{ url_for('recovery.index') }}" class="btn btn-sm btn-outline-secondary">Start a recovery</a>
-        </div>
-        {% endif %}
+<section class="wx-card">
+  <div class="wx-card-body-flush">
+    {% if cases %}
+    <div class="overflow-x-auto">
+      <table class="wx-table">
+        <thead><tr><th>Case</th><th>Files</th><th>Operator</th><th>Generated (UTC)</th><th>Signature</th><th></th></tr></thead>
+        <tbody>
+          {% for c in cases %}
+          <tr>
+            <td class="mono font-medium">{{ c.name }}</td>
+            <td class="tabular-nums">{{ c.total }}</td>
+            <td class="text-muted-foreground">{{ c.operator or '—' }}</td>
+            <td class="mono text-xs text-muted-foreground">{{ c.generated_at or '—' }}</td>
+            <td>
+              {% if c.valid and c.trusted %}{{ badge('verified', 'verified', dot=true) }}
+              {% elif c.valid %}{{ badge('untrusted key', 'untrusted', dot=true) }}
+              {% else %}{{ badge('unsigned', 'unsigned', dot=true) }}{% endif %}
+            </td>
+            <td class="text-right"><a class="wx-link text-xs" href="{{ url_for('recovery.case_detail', name=c.name) }}">Open</a></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
-</div>
+    {% else %}
+    {% call empty('No recovery cases yet.', 'life-buoy') %}
+      <a class="wx-link" href="{{ url_for('recovery.index') }}">Run a recovery</a>
+    {% endcall %}
+    {% endif %}
+  </div>
+</section>
 {% endblock %}

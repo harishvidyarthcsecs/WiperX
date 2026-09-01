@@ -1,0 +1,149 @@
+{# WiperX UI macros — shadcn-flavoured, server-rendered. Import what you need:
+   {% from "components/ui.html" import icon, btn, badge, card, card_open, card_close,
+      page_header, eyebrow, stat, callout, empty, data_row, csrf_field, field,
+      checkbox, radio, textarea, select_field %}
+#}
+
+{# ---- icon: <use> from the sprite. name = lucide id without the i- prefix ---- #}
+{% macro icon(name, cls="h-4 w-4") -%}
+<svg class="{{ cls }}" aria-hidden="true" focusable="false"><use href="{{ asset('icons/sprite.svg') }}#i-{{ name }}"></use></svg>
+{%- endmacro %}
+
+{% macro csrf_field() -%}
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+{%- endmacro %}
+
+{# ---- button. Renders <a> when href given, else <button> ---- #}
+{% macro btn(label, href=none, variant="secondary", type="button", icon_name=none, size="", cls="", attrs="") -%}
+  {%- set base = "wx-btn wx-btn-" ~ variant ~ (" " ~ size if size) ~ (" " ~ cls if cls) -%}
+  {%- if href -%}
+  <a href="{{ href }}" class="{{ base }}" {{ attrs|safe }}>
+    {%- if icon_name %}{{ icon(icon_name) }}{% endif %}{{ label }}</a>
+  {%- else -%}
+  <button type="{{ type }}" class="{{ base }}" {{ attrs|safe }}>
+    {%- if icon_name %}{{ icon(icon_name) }}{% endif %}{{ label }}</button>
+  {%- endif -%}
+{%- endmacro %}
+
+{# ---- status badge. variant: verified|untrusted|unsigned|running|blocked|info|neutral ---- #}
+{% macro badge(label, variant="neutral", dot=false) -%}
+<span class="wx-badge wx-badge-{{ variant }}{{ ' wx-badge-dot' if dot }}">{{ label }}</span>
+{%- endmacro %}
+
+{# ---- card. Use card_open/card_close for arbitrary body, or card() for simple ---- #}
+{% macro card_open(title=none, rail="idle", flush=false, actions_id=none) -%}
+<section class="wx-card {{ 'wx-rail wx-rail-' ~ rail if rail }}">
+  {%- if title %}
+  <header class="wx-card-header">
+    <h2 class="wx-card-title">{{ title }}</h2>
+    {% if actions_id %}<div id="{{ actions_id }}"></div>{% endif %}
+  </header>
+  {%- endif %}
+  <div class="{{ 'wx-card-body-flush' if flush else 'wx-card-body' }}">
+{%- endmacro %}
+
+{% macro card_close() -%}
+  </div>
+</section>
+{%- endmacro %}
+
+{% macro card(title, body, rail="idle") -%}
+{{ card_open(title, rail=rail) }}{{ body }}{{ card_close() }}
+{%- endmacro %}
+
+{# ---- page header: eyebrow + title + optional description + actions slot ---- #}
+{% macro page_header(title, eyebrow_text=none, description=none) -%}
+<div class="mb-6 flex flex-wrap items-end justify-between gap-4">
+  <div class="space-y-1.5">
+    {% if eyebrow_text %}<div class="wx-eyebrow">{{ eyebrow_text }}</div>{% endif %}
+    <h1 class="text-xl font-semibold tracking-tight">{{ title }}</h1>
+    {% if description %}<p class="text-sm text-muted-foreground">{{ description }}</p>{% endif %}
+  </div>
+  {% if caller %}<div class="flex items-center gap-2">{{ caller() }}</div>{% endif %}
+</div>
+{%- endmacro %}
+
+{% macro eyebrow(text) -%}<div class="wx-eyebrow">{{ text }}</div>{%- endmacro %}
+
+{# ---- stat tile ---- #}
+{% macro stat(label, value, rail="idle", href=none, icon_name=none) -%}
+  {%- set inner %}
+    <div class="flex items-start justify-between">
+      <div class="space-y-1">
+        <div class="wx-stat-label">{{ label }}</div>
+        <div class="wx-stat-value">{{ value }}</div>
+      </div>
+      {% if icon_name %}<span class="text-muted-foreground/40">{{ icon(icon_name, "h-6 w-6") }}</span>{% endif %}
+    </div>
+  {%- endset -%}
+  {%- if href -%}
+  <a href="{{ href }}" class="wx-stat transition-colors hover:border-primary/40">{{ inner }}</a>
+  {%- else -%}
+  <div class="wx-stat">{{ inner }}</div>
+  {%- endif -%}
+{%- endmacro %}
+
+{# ---- callout. tone: info|warning|danger ---- #}
+{% macro callout(tone="info", title=none) -%}
+<div class="wx-callout wx-callout-{{ tone }}">
+  {{ icon('shield-alert' if tone == 'danger' else ('triangle-alert' if tone == 'warning' else 'info')) }}
+  <div class="space-y-0.5">
+    {% if title %}<p class="font-medium">{{ title }}</p>{% endif %}
+    <p class="text-muted-foreground">{{ caller() }}</p>
+  </div>
+</div>
+{%- endmacro %}
+
+{% macro empty(message, icon_name="circle") -%}
+<div class="wx-empty">{{ icon(icon_name, "h-8 w-8") }}<p>{{ message }}</p>{% if caller %}{{ caller() }}{% endif %}</div>
+{%- endmacro %}
+
+{% macro data_row(term, value, mono=true) -%}
+<dt>{{ term }}</dt><dd class="{{ '' if mono else 'font-sans' }}">{{ value }}</dd>
+{%- endmacro %}
+
+{# ---- form fields ---- #}
+{% macro field(name, label, type="text", value="", required=false, placeholder="", hint=none, autofocus=false) -%}
+<div>
+  <label class="wx-label" for="f-{{ name }}">{{ label }}</label>
+  <input class="wx-input" id="f-{{ name }}" name="{{ name }}" type="{{ type }}"
+         value="{{ value }}" placeholder="{{ placeholder }}"
+         {{ 'required' if required }} {{ 'autofocus' if autofocus }}>
+  {% if hint %}<p class="wx-hint">{{ hint }}</p>{% endif %}
+</div>
+{%- endmacro %}
+
+{% macro textarea(name, label, value="", rows=4, required=false, placeholder="", hint=none) -%}
+<div>
+  <label class="wx-label" for="f-{{ name }}">{{ label }}</label>
+  <textarea class="wx-textarea" id="f-{{ name }}" name="{{ name }}" rows="{{ rows }}"
+            placeholder="{{ placeholder }}" {{ 'required' if required }}>{{ value }}</textarea>
+  {% if hint %}<p class="wx-hint">{{ hint }}</p>{% endif %}
+</div>
+{%- endmacro %}
+
+{% macro select_field(name, label, options, selected="", hint=none) -%}
+<div>
+  <label class="wx-label" for="f-{{ name }}">{{ label }}</label>
+  <select class="wx-select" id="f-{{ name }}" name="{{ name }}">
+    {% for value, text in options %}
+    <option value="{{ value }}" {{ 'selected' if value == selected }}>{{ text }}</option>
+    {% endfor %}
+  </select>
+  {% if hint %}<p class="wx-hint">{{ hint }}</p>{% endif %}
+</div>
+{%- endmacro %}
+
+{% macro checkbox(name, label, checked=false, value="1", hint=none) -%}
+<label class="flex items-start gap-2.5 text-sm">
+  <input class="wx-check mt-0.5" type="checkbox" name="{{ name }}" value="{{ value }}" {{ 'checked' if checked }}>
+  <span>{{ label }}{% if hint %}<span class="wx-hint block">{{ hint }}</span>{% endif %}</span>
+</label>
+{%- endmacro %}
+
+{% macro radio(name, label, value, checked=false, hint=none) -%}
+<label class="flex items-start gap-2.5 text-sm">
+  <input class="wx-check mt-0.5 rounded-full" type="radio" name="{{ name }}" value="{{ value }}" {{ 'checked' if checked }}>
+  <span>{{ label }}{% if hint %}<span class="wx-hint block">{{ hint }}</span>{% endif %}</span>
+</label>
+{%- endmacro %}

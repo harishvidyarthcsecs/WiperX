@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% from "components/ui.html" import icon, btn %}
+{% block title %}Not found{% endblock %}
+{% block content %}
+<div class="mx-auto flex max-w-md flex-col items-center gap-4 py-16 text-center">
+  <span class="text-muted-foreground">{{ icon('circle-x', 'h-10 w-10') }}</span>
+  <div class="space-y-1">
+    <p class="font-mono text-xs uppercase tracking-[0.14em] text-muted-foreground">Error 404</p>
+    <h1 class="text-lg font-semibold">That page isn't here</h1>
+    <p class="text-sm text-muted-foreground">The route or record you asked for doesn't exist, or was removed.</p>
+  </div>
+  {{ btn('Back to dashboard', href=url_for('dashboard.index'), variant='primary', icon_name='layout-dashboard') }}
+</div>
+{% endblock %}

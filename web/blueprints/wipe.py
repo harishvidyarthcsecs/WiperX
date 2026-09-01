@@ -22,6 +22,16 @@ wipe_bp = Blueprint("wipe", __name__)
 _wipe_queues: dict = {}
 
 
+@wipe_bp.route("/")
+@login_required
+def index():
+    """Module 1 landing page — choose a target, then scan and select a disk."""
+    if not current_user.can("wipe"):
+        flash("Access denied: wipe permission required.", "danger")
+        return redirect(url_for("dashboard.index"))
+    return render_template("wipe/index.html")
+
+
 @wipe_bp.route("/confirm", methods=["GET", "POST"])
 @login_required
 def confirm():

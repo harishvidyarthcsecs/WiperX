@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% from "components/ui.html" import icon, btn, callout %}
+{% block title %}Drive Eraser{% endblock %}
+{% block nav %}wipe{% endblock %}
+{% block topbar %}<span class="text-sm font-medium">Drive Eraser</span>{% endblock %}
+
+{% block content %}
+<div class="mb-6 space-y-1.5">
+  <div class="wx-eyebrow">Module 01 · NIST SP 800-88</div>
+  <h1 class="text-xl font-semibold tracking-tight">Secure drive eraser</h1>
+  <p class="max-w-2xl text-sm text-muted-foreground">
+    Whole-disk sanitisation. Pick a target below to scan its disks, then choose one to erase.
+    The engine selects the right method per media type — <span class="font-mono text-xs">shred</span>,
+    <span class="font-mono text-xs">blkdiscard</span>, <span class="font-mono text-xs">nvme format</span>,
+    ATA Secure Erase or <span class="font-mono text-xs">diskpart</span> — and applies your chosen pass table on top.
+  </p>
+</div>
+
+<div class="grid gap-4 sm:grid-cols-2">
+  <a href="{{ url_for('disks.scan_local') }}" class="wx-card wx-rail wx-rail-idle group p-5 transition-colors hover:border-primary/40">
+    <div class="flex items-center justify-between">
+      <div class="space-y-1">
+        <p class="text-base font-semibold">This machine</p>
+        <p class="text-xs text-muted-foreground">Scan local disks</p>
+      </div>
+      <span class="text-muted-foreground/40 group-hover:text-primary">{{ icon('hard-drive', 'h-6 w-6') }}</span>
+    </div>
+  </a>
+  <a href="{{ url_for('machines.index') }}" class="wx-card wx-rail wx-rail-idle group p-5 transition-colors hover:border-primary/40">
+    <div class="flex items-center justify-between">
+      <div class="space-y-1">
+        <p class="text-base font-semibold">Remote machine</p>
+        <p class="text-xs text-muted-foreground">Registered SSH / WinRM targets</p>
+      </div>
+      <span class="text-muted-foreground/40 group-hover:text-primary">{{ icon('server', 'h-6 w-6') }}</span>
+    </div>
+  </a>
+</div>
+
+<div class="mt-6">
+  {% call callout('danger', 'This is irreversible') %}
+  A mounted system disk cannot be wiped while its OS is running. For the boot drive, run WiperX from a
+  live/boot environment. Every wipe requires a typed disk-id confirmation and produces a signed certificate.
+  {% endcall %}
+</div>
+
+<section class="mt-6 wx-card">
+  <header class="wx-card-header"><h2 class="wx-card-title">Pass tables</h2></header>
+  <div class="wx-card-body-flush overflow-x-auto">
+    <table class="wx-table">
+      <thead><tr><th>Method</th><th>Standard</th><th>Passes</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">clear</td><td>NIST SP 800-88 Clear</td><td>1 random + 1 zero</td></tr>
+        <tr><td class="mono">dod / dod-3</td><td>DoD 5220.22-M (E)</td><td>3</td></tr>
+        <tr><td class="mono">dod-7</td><td>DoD 5220.22-M (ECE)</td><td>7</td></tr>
+        <tr><td class="mono">gutmann</td><td>Gutmann</td><td>35</td></tr>
+        <tr><td class="mono">nist-purge</td><td>NIST SP 800-88 Purge</td><td>random + read-back verify</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

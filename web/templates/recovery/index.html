@@ -1,87 +1,53 @@
 {% extends "base.html" %}
-{% block title %}Recover{% endblock %}
+{% from "components/ui.html" import icon, csrf_field, callout %}
+{% block title %}Recovery{% endblock %}
+{% block nav %}recovery{% endblock %}
+{% block topbar %}<span class="text-sm font-medium">Recovery</span>{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <div>
-        <h3 class="mb-1" style="color:#e74c3c; font-weight:700; letter-spacing:2px">
-            <i class="bi bi-life-preserver"></i> FILE CARVING &amp; RECOVERY
-        </h3>
-        <p class="text-muted mb-0 small">Read-only forensic recovery from a device or image (Module 3)</p>
-    </div>
-    <a href="{{ url_for('recovery.cases') }}" class="btn btn-outline-secondary btn-sm">
-        <i class="bi bi-folder2-open"></i> Past Cases
-    </a>
+<div class="mb-6 space-y-1.5">
+  <div class="wx-eyebrow">Module 03 · read-only acquisition</div>
+  <h1 class="text-xl font-semibold tracking-tight">Advanced carving &amp; recovery</h1>
+  <p class="max-w-2xl text-sm text-muted-foreground">Point at a device or image. WiperX runs a filesystem-undelete pass and a signature-carving pass, validates every hit, and writes a signed forensic case report.</p>
 </div>
 
-<div class="row">
-    <div class="col-lg-8">
-        <div class="card">
-            <div class="card-header"><strong><i class="bi bi-search"></i> New Recovery</strong></div>
-            <div class="card-body">
-                <form method="POST" action="{{ url_for('recovery.index') }}">
-                    <div class="mb-3">
-                        <label class="form-label">Source (block device or image file)</label>
-                        <input type="text" name="source" class="form-control"
-                               placeholder="/path/to/disk.img  or  /dev/sdX" required>
-                        <div class="form-text">
-                            The source is opened <strong>read-only</strong>. Recovering from a
-                            <code>/dev/*</code> device requires the administrator role.
-                            {% if allowed_root %}
-                            <br>Image sources must live under <code>{{ allowed_root }}</code>.
-                            {% endif %}
-                        </div>
-                    </div>
-
-                    <div class="mb-3">
-                        <label class="form-label">Mode</label>
-                        <div class="form-check">
-                            <input class="form-check-input" type="radio" name="mode" id="mode-full" value="full" checked>
-                            <label class="form-check-label" for="mode-full">
-                                Full &mdash; filesystem undelete pass, then signature carving
-                            </label>
-                        </div>
-                        <div class="form-check">
-                            <input class="form-check-input" type="radio" name="mode" id="mode-carve" value="carve-only">
-                            <label class="form-check-label" for="mode-carve">Carve only &mdash; skip the filesystem pass</label>
-                        </div>
-                        <div class="form-check">
-                            <input class="form-check-input" type="radio" name="mode" id="mode-fs" value="fs-only">
-                            <label class="form-check-label" for="mode-fs">Filesystem only &mdash; skip carving</label>
-                        </div>
-                    </div>
-
-                    <div class="form-check mb-3">
-                        <input class="form-check-input" type="checkbox" name="allow_mounted" id="allow-mounted">
-                        <label class="form-check-label" for="allow-mounted">
-                            Allow a read-write mounted device (unsafe &mdash; concurrent writes can corrupt the recovery)
-                        </label>
-                    </div>
-
-                    <div class="mb-3">
-                        <label class="form-label">Operator</label>
-                        <input type="text" name="operator" class="form-control"
-                               value="{{ current_user.username }}">
-                    </div>
-
-                    <button type="submit" class="btn btn-danger">
-                        <i class="bi bi-play-fill"></i> Start Recovery
-                    </button>
-                </form>
-            </div>
+<div class="grid gap-6 lg:grid-cols-[1.5fr_1fr]">
+  <section class="wx-card wx-rail wx-rail-idle">
+    <header class="wx-card-header"><h2 class="wx-card-title">Source</h2></header>
+    <div class="wx-card-body">
+      <form method="POST" action="{{ url_for('recovery.index') }}" class="space-y-5">
+        {{ csrf_field() }}
+        <div>
+          <label class="wx-label" for="f-source">Device or image path</label>
+          <input class="wx-input font-mono" id="f-source" name="source" type="text" placeholder="/dev/sdb  ·  /cases/evidence.dd" required>
+          {% if allowed_root %}<p class="wx-hint">Image sources restricted to <span class="font-mono">{{ allowed_root }}</span></p>{% endif %}
         </div>
-    </div>
-    <div class="col-lg-4">
-        <div class="card">
-            <div class="card-header"><strong><i class="bi bi-info-circle"></i> Notes</strong></div>
-            <div class="card-body small text-muted">
-                <p>Recovered files land in <code>cases/&lt;id&gt;/recovered/</code> alongside an
-                Ed25519-signed <code>case_report.json</code> with a per-file SHA-256 manifest and
-                a source chain-of-custody header.</p>
-                <p class="mb-0">Fragmented-file support is limited to contiguous files and
-                bifragment JPEG.</p>
-            </div>
+
+        <fieldset class="space-y-2.5">
+          <legend class="wx-label">Passes to run</legend>
+          <label class="flex items-start gap-2.5 text-sm"><input class="wx-check mt-0.5 rounded-full" type="radio" name="mode" value="full" checked><span>Full — filesystem undelete + carving</span></label>
+          <label class="flex items-start gap-2.5 text-sm"><input class="wx-check mt-0.5 rounded-full" type="radio" name="mode" value="carve-only"><span>Carve only — signatures, ignore filesystem</span></label>
+          <label class="flex items-start gap-2.5 text-sm"><input class="wx-check mt-0.5 rounded-full" type="radio" name="mode" value="fs-only"><span>Filesystem only — undelete via metadata</span></label>
+        </fieldset>
+
+        <label class="flex items-start gap-2.5 text-sm"><input class="wx-check mt-0.5" type="checkbox" name="allow_mounted"><span>Allow a read-write mounted source <span class="text-muted-foreground">(unsafe)</span></span></label>
+
+        <div>
+          <label class="wx-label" for="f-operator">Operator</label>
+          <input class="wx-input" id="f-operator" name="operator" type="text" value="{{ current_user.display_name }}">
         </div>
+
+        <button type="submit" class="wx-btn wx-btn-primary">{{ icon('life-buoy') }} Start recovery</button>
+      </form>
     </div>
+  </section>
+
+  <div class="space-y-4">
+    {% call callout('info', 'How it works') %}
+    The source is opened <span class="font-mono text-xs">O_RDONLY</span> and SHA-256 hashed for chain of custody.
+    Carving finds files by shape even with no filesystem; heavily fragmented files and TRIMed SSD blocks may not be recoverable.
+    {% endcall %}
+    <a href="{{ url_for('recovery.cases') }}" class="wx-btn wx-btn-outline wx-btn-sm w-full">{{ icon('file-check') }} View past cases</a>
+  </div>
 </div>
 {% endblock %}

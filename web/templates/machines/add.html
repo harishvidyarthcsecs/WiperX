@@ -1,108 +1,91 @@
 {% extends "base.html" %}
-{% block title %}Add Machine{% endblock %}
+{% from "components/ui.html" import icon, csrf_field, callout %}
+{% block title %}Add machine{% endblock %}
+{% block nav %}machines{% endblock %}
+{% block topbar %}<span class="text-sm font-medium">Add machine</span>{% endblock %}
+
 {% block content %}
-<div class="row justify-content-center">
-    <div class="col-md-7">
-        <div class="mb-4">
-            <h3 style="color:#e74c3c; font-weight:700; letter-spacing:2px">
-                <i class="bi bi-plus-circle"></i> ADD REMOTE MACHINE
-            </h3>
+<div class="mx-auto max-w-xl">
+  <div class="mb-6 space-y-1.5">
+    <div class="wx-eyebrow">Remote target</div>
+    <h1 class="text-xl font-semibold tracking-tight">Register a machine</h1>
+  </div>
+
+  <section class="wx-card">
+    <div class="wx-card-body">
+      <form method="POST" action="{{ url_for('machines.add') }}" class="space-y-5">
+        {{ csrf_field() }}
+        <div>
+          <label class="wx-label" for="f-hostname">Hostname / IP address</label>
+          <input class="wx-input" id="f-hostname" name="hostname" type="text" placeholder="10.0.0.12 or host.example.com" required>
         </div>
-        <div class="card">
-            <div class="card-body">
-                <form method="POST" action="{{ url_for('machines.add') }}">
-                    <div class="mb-3">
-                        <label class="form-label">Hostname / IP Address *</label>
-                        <input type="text" name="hostname" class="form-control"
-                               placeholder="192.168.1.10 or server.domain.com" required>
-                    </div>
-                    <div class="row mb-3">
-                        <div class="col">
-                            <label class="form-label">OS Type</label>
-                            <select name="os_type" class="form-select">
-                                <option value="unknown">Auto-detect</option>
-                                <option value="linux">Linux</option>
-                                <option value="windows">Windows</option>
-                            </select>
-                        </div>
-                        <div class="col">
-                            <label class="form-label">Connection Type *</label>
-                            <select name="connection_type" class="form-select" id="conn-type"
-                                    onchange="toggleFields()">
-                                <option value="ssh">SSH (Linux)</option>
-                                <option value="winrm">WinRM (Windows)</option>
-                            </select>
-                        </div>
-                    </div>
 
-                    <!-- SSH Fields -->
-                    <div id="ssh-fields">
-                        <hr><p class="text-muted small">SSH Configuration (Key-based auth only)</p>
-                        <div class="row mb-3">
-                            <div class="col">
-                                <label class="form-label">SSH Username</label>
-                                <input type="text" name="ssh_username" class="form-control" placeholder="admin">
-                            </div>
-                            <div class="col">
-                                <label class="form-label">SSH Port</label>
-                                <input type="number" name="ssh_port" class="form-control" value="22">
-                            </div>
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">Private Key Path</label>
-                            <input type="text" name="ssh_key_path" class="form-control"
-                                   placeholder="/home/user/.ssh/wiperx_key">
-                            <div class="form-text text-muted">
-                                Path to SSH private key on the WiperX server.
-                                Set WIPERX_SSH_KEY_PATH env var as alternative.
-                            </div>
-                        </div>
-                    </div>
+        <div class="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label class="wx-label" for="f-os_type">OS type</label>
+            <select class="wx-select" id="f-os_type" name="os_type">
+              <option value="unknown">Auto-detect</option>
+              <option value="linux">Linux</option>
+              <option value="windows">Windows</option>
+              <option value="darwin">macOS</option>
+            </select>
+          </div>
+          <div>
+            <label class="wx-label" for="f-connection_type">Connection</label>
+            <select class="wx-select" id="f-connection_type" name="connection_type" data-wx-conn>
+              <option value="ssh">SSH (Linux / macOS)</option>
+              <option value="winrm">WinRM (Windows)</option>
+            </select>
+          </div>
+        </div>
 
-                    <!-- WinRM Fields -->
-                    <div id="winrm-fields" style="display:none">
-                        <hr><p class="text-muted small">WinRM Configuration (HTTPS only)</p>
-                        <div class="row mb-3">
-                            <div class="col">
-                                <label class="form-label">WinRM Username</label>
-                                <input type="text" name="winrm_username" class="form-control" placeholder="Administrator">
-                            </div>
-                            <div class="col">
-                                <label class="form-label">WinRM Port</label>
-                                <input type="number" name="winrm_port" class="form-control" value="5986">
-                            </div>
-                        </div>
-                        <div class="alert alert-warning py-2 small">
-                            <i class="bi bi-shield-lock"></i>
-                            WinRM password must be set via <code>WIPERX_WINRM_PASS</code> environment variable.
-                            Never stored in this form.
-                        </div>
-                    </div>
-
-                    <div class="mb-3">
-                        <label class="form-label">Description (optional)</label>
-                        <input type="text" name="description" class="form-control"
-                               placeholder="e.g. Lab server, Build machine...">
-                    </div>
-
-                    <div class="d-grid gap-2">
-                        <button type="submit" class="btn btn-danger">
-                            <i class="bi bi-plus-circle me-2"></i>Register Machine
-                        </button>
-                        <a href="{{ url_for('machines.index') }}" class="btn btn-outline-secondary">Cancel</a>
-                    </div>
-                </form>
+        <div data-wx-conn-ssh class="space-y-4 border-t border-border pt-4">
+          <p class="wx-eyebrow">SSH · key-based auth</p>
+          <div class="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label class="wx-label" for="f-ssh_username">SSH username</label>
+              <input class="wx-input" id="f-ssh_username" name="ssh_username" type="text" placeholder="admin">
             </div>
+            <div>
+              <label class="wx-label" for="f-ssh_port">SSH port</label>
+              <input class="wx-input" id="f-ssh_port" name="ssh_port" type="number" value="22">
+            </div>
+          </div>
+          <div>
+            <label class="wx-label" for="f-ssh_key_path">Private key path (on the WiperX server)</label>
+            <input class="wx-input font-mono" id="f-ssh_key_path" name="ssh_key_path" type="text" placeholder="/home/svc/.ssh/wiperx_key">
+            <p class="wx-hint">Or set <span class="font-mono">WIPERX_SSH_KEY_PATH</span>.</p>
+          </div>
         </div>
+
+        <div data-wx-conn-winrm hidden class="space-y-4 border-t border-border pt-4">
+          <p class="wx-eyebrow">WinRM · HTTPS only</p>
+          <div class="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label class="wx-label" for="f-winrm_username">WinRM username</label>
+              <input class="wx-input" id="f-winrm_username" name="winrm_username" type="text" placeholder="Administrator">
+            </div>
+            <div>
+              <label class="wx-label" for="f-winrm_port">WinRM port</label>
+              <input class="wx-input" id="f-winrm_port" name="winrm_port" type="number" value="5986">
+            </div>
+          </div>
+          {% call callout('warning') %}
+          The WinRM password is never stored here — set <span class="font-mono">WIPERX_WINRM_PASS</span> on the server.
+          {% endcall %}
+        </div>
+
+        <div>
+          <label class="wx-label" for="f-description">Description <span class="font-normal text-muted-foreground">(optional)</span></label>
+          <input class="wx-input" id="f-description" name="description" type="text" placeholder="Lab server, build box…">
+        </div>
+
+        <div class="flex flex-col gap-2 sm:flex-row-reverse">
+          <button type="submit" class="wx-btn wx-btn-primary sm:flex-1">{{ icon('plus') }} Register machine</button>
+          <a href="{{ url_for('machines.index') }}" class="wx-btn wx-btn-outline sm:flex-1">Cancel</a>
+        </div>
+      </form>
     </div>
+  </section>
 </div>
-{% block extra_js %}
-<script>
-function toggleFields() {
-    const val = document.getElementById("conn-type").value;
-    document.getElementById("ssh-fields").style.display = val === "ssh" ? "block" : "none";
-    document.getElementById("winrm-fields").style.display = val === "winrm" ? "block" : "none";
-}
-</script>
-{% endblock %}
 {% endblock %}

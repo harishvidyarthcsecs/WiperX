@@ -1,41 +1,38 @@
 {% extends "base.html" %}
-{% block title %}Audit Log{% endblock %}
+{% from "components/ui.html" import icon, empty %}
+{% block title %}Audit log{% endblock %}
+{% block nav %}audit{% endblock %}
+{% block topbar %}<span class="text-sm font-medium">Audit log</span>{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <h3 class="mb-0" style="color:#e74c3c; font-weight:700; letter-spacing:2px">
-        <i class="bi bi-file-lock"></i> AUDIT LOG
-    </h3>
-    <a href="{{ url_for('dashboard.index') }}" class="btn btn-outline-secondary btn-sm">
-        <i class="bi bi-arrow-left"></i> Dashboard
-    </a>
+<div class="mb-6 space-y-1.5">
+  <div class="wx-eyebrow">Append-only · tamper-evident</div>
+  <h1 class="text-xl font-semibold tracking-tight">AUDIT LOG</h1>
+  <p class="text-sm text-muted-foreground">Most recent {{ events|length }} events. Every wipe, erase, recovery and sign-in is recorded here and, when configured, forwarded to your SIEM.</p>
 </div>
 
-<div class="card">
-    <div class="card-header small text-muted">
-        Latest {{ events|length }} events from today's <code>logs/wiperx_audit_&lt;date&gt;.log</code> (newest first)
+<section class="wx-card">
+  <div class="wx-card-body-flush">
+    {% if events %}
+    <div class="overflow-x-auto">
+      <table class="wx-table">
+        <thead><tr><th>Time (UTC)</th><th>Event</th><th>Module</th><th>User</th><th>Data</th></tr></thead>
+        <tbody>
+          {% for e in events %}
+          <tr>
+            <td class="mono whitespace-nowrap text-muted-foreground">{{ e.timestamp }}</td>
+            <td><span class="wx-badge wx-badge-neutral mono">{{ e.event }}</span></td>
+            <td class="mono text-xs text-muted-foreground">{{ e.module }}</td>
+            <td class="text-muted-foreground">{{ e.user }}</td>
+            <td class="mono max-w-md truncate text-xs text-muted-foreground">{{ e.data | tojson if e.data else '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
-    <div class="card-body p-0">
-        {% if events %}
-        <table class="table table-hover table-sm mb-0">
-            <thead><tr><th>Time (UTC)</th><th>Event</th><th>Module</th><th>User</th><th>Data</th></tr></thead>
-            <tbody>
-                {% for e in events %}
-                <tr>
-                    <td class="small text-muted" style="white-space:nowrap">{{ e.timestamp }}</td>
-                    <td><code>{{ e.event }}</code></td>
-                    <td class="small">{{ e.module }}</td>
-                    <td class="small">{{ e.user }}</td>
-                    <td class="small text-muted" style="max-width:420px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">
-                        {{ e.data }}
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        {% else %}
-        <div class="text-center text-muted py-5">No audit events recorded yet.</div>
-        {% endif %}
-    </div>
-</div>
+    {% else %}
+    {{ empty('No audit events recorded yet.', 'scroll-text') }}
+    {% endif %}
+  </div>
+</section>
 {% endblock %}

@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% from "components/ui.html" import icon, badge, btn, csrf_field %}
+{% block title %}Settings{% endblock %}
+{% block nav %}settings{% endblock %}
+{% block topbar %}<span class="text-sm font-medium">Settings</span>{% endblock %}
+
+{% block content %}
+<div class="mb-6 space-y-1.5">
+  <div class="wx-eyebrow">Account &amp; configuration</div>
+  <h1 class="text-xl font-semibold tracking-tight">Settings</h1>
+</div>
+
+<div class="grid gap-4 lg:grid-cols-2">
+  {# ---- profile ---- #}
+  <section class="wx-card">
+    <header class="wx-card-header"><h2 class="wx-card-title">Profile</h2></header>
+    <div class="wx-card-body space-y-5">
+      <dl class="wx-dl">
+        <dt>Username</dt><dd>{{ current_user.username }}</dd>
+        <dt>Role</dt><dd class="font-sans">{{ badge(current_user.role, 'info') }}</dd>
+      </dl>
+      <form method="POST" action="{{ url_for('settings.change_password') }}" class="space-y-4 border-t border-border pt-4">
+        {{ csrf_field() }}
+        <p class="wx-eyebrow">Change password</p>
+        <div>
+          <label class="wx-label" for="f-current_password">Current password</label>
+          <input class="wx-input" id="f-current_password" name="current_password" type="password" autocomplete="current-password" required>
+        </div>
+        <div class="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label class="wx-label" for="f-new_password">New password</label>
+            <input class="wx-input" id="f-new_password" name="new_password" type="password" autocomplete="new-password" minlength="8" required>
+          </div>
+          <div>
+            <label class="wx-label" for="f-confirm_password">Confirm</label>
+            <input class="wx-input" id="f-confirm_password" name="confirm_password" type="password" autocomplete="new-password" minlength="8" required>
+          </div>
+        </div>
+        <button type="submit" class="wx-btn wx-btn-primary">{{ icon('key') }} Update password</button>
+      </form>
+    </div>
+  </section>
+
+  {# ---- signing key ---- #}
+  <section class="wx-card">
+    <header class="wx-card-header"><h2 class="wx-card-title">Report signing</h2></header>
+    <div class="wx-card-body space-y-4">
+      {% if signing_key.error %}
+        {{ badge('unavailable', 'unsigned', dot=true) }}
+        <p class="text-sm text-muted-foreground">{{ signing_key.error }}</p>
+      {% else %}
+      <dl class="wx-dl">
+        <dt>Key fingerprint</dt><dd>{{ signing_key.fingerprint }}</dd>
+        <dt>Private key</dt><dd>{{ signing_key.path }}</dd>
+        <dt>Public key</dt><dd>{{ signing_key.public_key_path }}</dd>
+      </dl>
+      <div class="flex gap-2">
+        {{ btn('Download public key', href=url_for('settings.download_public_key'), variant='outline', size='wx-btn-sm', icon_name='download') }}
+        <button type="button" class="wx-btn wx-btn-ghost wx-btn-sm" data-wx-copy="{{ signing_key.fingerprint }}" aria-label="Copy fingerprint">{{ icon('copy') }} Copy id</button>
+      </div>
+      <p class="text-xs text-muted-foreground">Every certificate and case report is signed with this Ed25519 key. Distribute the public key so third parties can verify reports offline.</p>
+      {% endif %}
+    </div>
+  </section>
+
+  {# ---- integrations ---- #}
+  <section class="wx-card">
+    <header class="wx-card-header"><h2 class="wx-card-title">Integrations</h2></header>
+    <div class="wx-card-body">
+      <dl class="wx-dl">
+        <dt>Database</dt><dd class="font-sans">{% if integrations.database %}{{ badge('connected', 'verified', dot=true) }}{% else %}{{ badge('in-memory', 'neutral', dot=true) }}{% endif %}</dd>
+        <dt>LDAP / AD</dt><dd class="font-sans">{% if integrations.ldap %}{{ badge('configured', 'verified', dot=true) }}{% else %}{{ badge('off', 'neutral', dot=true) }}{% endif %}</dd>
+        <dt>SIEM · Splunk</dt><dd class="font-sans">{% if integrations.siem_splunk %}{{ badge('configured', 'verified', dot=true) }}{% else %}{{ badge('off', 'neutral', dot=true) }}{% endif %}</dd>
+        <dt>SIEM · Elastic</dt><dd class="font-sans">{% if integrations.siem_elastic %}{{ badge('configured', 'verified', dot=true) }}{% else %}{{ badge('off', 'neutral', dot=true) }}{% endif %}</dd>
+      </dl>
+      <p class="mt-3 text-xs text-muted-foreground">Read-only. Configure via environment variables on the server; secrets are never shown here.</p>
+    </div>
+  </section>
+
+  {# ---- users (admin) ---- #}
+  {% if users is not none %}
+  <section class="wx-card">
+    <header class="wx-card-header"><h2 class="wx-card-title">Users</h2></header>
+    <div class="wx-card-body-flush overflow-x-auto">
+      <table class="wx-table">
+        <thead><tr><th>Username</th><th>Display name</th><th>Role</th></tr></thead>
+        <tbody>
+          {% for u in users %}
+          <tr>
+            <td class="font-medium">{{ u.username }}</td>
+            <td class="text-muted-foreground">{{ u.display_name }}</td>
+            <td>{{ badge(u.role, 'info') }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {% endif %}
+</div>
+{% endblock %}
