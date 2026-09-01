@@ -44,15 +44,26 @@ All of Part A above (docs + recovery demo script) landed, plus 3 backlog items, 
 
 Also fixed along the way: two stale `requirements.txt` pins that blocked `pip install` in a fresh venv have been carried forward from the prior session's fix (`pytsk3`, `Pillow`), and `gunicorn` was added as the production WSGI dependency the README's Quick Setup already referenced but `requirements.txt` never listed.
 
-## Backlog (lower priority, not started)
+## Done in the second follow-up session (2026-09-01) — the 3 remaining High-priority items
 
-- **Database backend** — replace in-memory stores with PostgreSQL (High)
-- **LDAP/AD auth** — enterprise SSO (High)
-- **SIEM integration** — forward audit logs to Splunk/Elastic (High)
+All verified against real running services, not just mocked, per the pattern established earlier in this roadmap:
+
+| Item | Verification |
+|---|---|
+| **Database backend** (`web/db.py`, `web/db_models.py`) | SQLAlchemy behind a `collections.abc.MutableMapping` proxy so none of the 6 existing call sites (`app.py`, `auth.py`, `disks.py`, `machines.py`, `wipe.py`, `dashboard.py`) needed to change. Defaults to in-memory (unchanged behavior); `DATABASE_URL` opts into SQLite or PostgreSQL. Verified against a **real `postgres:16-alpine` container**: seed, login, and machine CRUD round-tripped for real, not just against SQLite. 10 new tests (8 SQLite + 2 real-Postgres, gated on `WIPERX_TEST_POSTGRES_URL`) |
+| **LDAP/AD authentication** (`web/ldap_auth.py`) | Search-then-bind (works for both generic LDAP and AD), group→role mapping, JIT user provisioning into whichever store is active. Local accounts remain a working fallback — LDAP being configured never locks out the demo admin account. Verified against a **real `osixia/openldap` container** populated with real test users/groups: correct-password login, wrong-password rejection, unknown-user rejection, and group→role mapping all confirmed live, including RBAC enforcement afterward (an LDAP user mapped to a non-admin group was actually blocked from an admin-only route). 19 new tests (15 unit + 4 real-server, gated on `WIPERX_TEST_LDAP_URL`) |
+| **SIEM integration** (`core/siem_forwarder.py`) | Async (daemon worker thread + bounded queue), best-effort forwarding to Splunk HEC and/or Elasticsearch/OpenSearch bulk API, wired into `audit_logger.log_event()`. Verified against a **real local HTTP server** capturing actual requests: correct Splunk `Authorization: Splunk <token>` header and event envelope, correct Elasticsearch `_bulk` NDJSON body and `Content-Type`, both targets receiving the same event, an unreachable target confirmed non-blocking (`forward_event()` returns in <0.5s) and non-crashing. 10 new tests |
+
+Also verified: `docker build` still succeeds with the 3 new dependencies (`SQLAlchemy`, `psycopg2-binary`, `ldap3` — all installed cleanly, no new system packages needed since `psycopg2-binary` ships a precompiled wheel), and the container runs with all imports working. Full suite: **129 passed, 6 skipped** (the skips are the real-service-gated tests, correctly skipping when `WIPERX_TEST_POSTGRES_URL`/`WIPERX_TEST_LDAP_URL` aren't set — not failures).
+
+## Backlog (remaining, lower priority)
+
 - **Disk progress bar**, **concurrent wipe**, **S3 report upload**, **wipe scheduling**, **REST API** (Medium)
 - **Bootable ISO / PXE** for wiping the running OS disk — the one limitation no software wiper can solve locally; README already documents the DRBL/FOG/WinPE approach but nothing is built
-- A `docker compose config` validation pass once the compose plugin is available in a dev environment (only Dockerfile-level build/run was verified this session)
+- A `docker compose config` validation pass once the compose plugin is available in a dev environment (only Dockerfile-level build/run was verified — real Postgres/OpenLDAP containers were run directly via `docker run`, not through `docker compose`)
+- Redis-backed session management (mentioned in `web/app.py`'s original docstring, still open)
+- Alembic migrations for the new DB backend — `Base.metadata.create_all()` is fine for this scope but doesn't track schema changes over time
 
 ## Timeline note
 
-SIH26149 deadline: **20 September 2026**. As of this session: all three required modules are implemented, tested (96/96), documented (user manual with real screenshots, technical docs, performance evaluation with real benchmark numbers), containerized, and have a working demo script for both the erase and recovery sides. Remaining realistic pre-submission work is `main` → `origin` push (currently local-only, pending explicit go-ahead) and, time permitting, the backlog above.
+SIH26149 deadline: **20 September 2026**. As of this session: all three required modules are implemented, tested, documented (user manual with real screenshots, technical docs, performance evaluation with real benchmark numbers), containerized, have a working demo script for both the erase and recovery sides, and now also support persistent storage, enterprise LDAP/AD authentication, and SIEM forwarding — all three verified against real services. What's left is optional enterprise polish (REST API, concurrent wipe, etc.), not anything blocking a submission.

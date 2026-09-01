@@ -48,10 +48,17 @@ These would otherwise have been my top recommendations — turns out they're bui
 - **Live SSE log streaming** for long-running recovery jobs in the web UI
 - `tools/make_demo_image.sh` + `tools/demo_erase.sh` — ready-made demo scaffolding for a live SIH pitch
 
-## Extras added in the follow-up session (2026-08-31)
+## Extras added in the follow-up sessions (2026-08-31 and 2026-09-01)
 
-hdparm ATA Secure Erase (`core/strategies/LinuxHdparmSecureEraseStrategy`, `--method ata-secure-erase`), a SMART pre-wipe health check (`core/smart_check.py`, advisory-only), and a Docker Compose deployment (`docker-compose.yml` + Nginx) — all three were on the "extras still worth considering" list and are now implemented and tested. See `docs/ROADMAP.md` for verification details.
+- hdparm ATA Secure Erase (`core/strategies/LinuxHdparmSecureEraseStrategy`, `--method ata-secure-erase`)
+- SMART pre-wipe health check (`core/smart_check.py`, advisory-only)
+- Docker Compose deployment (`docker-compose.yml` + Nginx)
+- **PostgreSQL-backed persistence** (`web/db.py`, opt-in via `DATABASE_URL`) — replaces the demo's in-memory user/machine stores without changing any of the 6 files that read/write them
+- **LDAP/Active Directory authentication** (`web/ldap_auth.py`) — search-then-bind, group→role mapping, verified against a real OpenLDAP server including RBAC enforcement afterward
+- **SIEM forwarding** (`core/siem_forwarder.py`) — async, best-effort delivery to Splunk HEC and/or Elasticsearch/OpenSearch, verified against a real local HTTP listener
+
+All six were on the "extras still worth considering" list and are now implemented, tested, and — for the DB/LDAP/SIEM trio — verified against real running services (Postgres, OpenLDAP, and a mock HTTP listener respectively), not just mocked. See `docs/ROADMAP.md` for full verification details.
 
 ## Extras still worth considering (not built, lower priority — see ROADMAP.md)
 
-A bootable ISO/PXE story for wiping the running OS disk (the one limitation no software wiper can solve locally), SIEM export, concurrent multi-disk wipes.
+A bootable ISO/PXE story for wiping the running OS disk (the one limitation no software wiper can solve locally), concurrent multi-disk wipes, a REST API, wipe scheduling.

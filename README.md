@@ -98,6 +98,8 @@ wiperx/
 │   ├── report_generator.py        # JSON + PDF report generation
 │   ├── report_signer.py           # Ed25519-signed envelope for every report type
 │   ├── audit_logger.py            # Structured JSON audit logging
+│   ├── smart_check.py             # Advisory SMART pre-wipe health check
+│   ├── siem_forwarder.py          # Async, best-effort Splunk HEC / Elasticsearch forwarding
 │   ├── strategies/
 │   │   └── __init__.py            # All wipe strategies (factory pattern)
 │   ├── executors/
@@ -130,7 +132,10 @@ wiperx/
 ├── web/
 │   ├── __init__.py
 │   ├── app.py                     # Flask application factory
-│   ├── models.py                  # User model, RBAC, machine registry
+│   ├── models.py                  # User model, RBAC, machine registry (in-memory or DB-backed)
+│   ├── db.py                      # SQLAlchemy engine/session (opt-in via DATABASE_URL)
+│   ├── db_models.py                # SQLAlchemy ORM models (UserORM, MachineORM)
+│   ├── ldap_auth.py                # LDAP/AD search-then-bind auth (opt-in via WIPERX_LDAP_URL)
 │   ├── blueprints/
 │   │   ├── __init__.py
 │   │   ├── auth.py                # Login/logout
@@ -161,7 +166,7 @@ wiperx/
 │   └── demo_erase.sh              # End-to-end erase demo script
 ├── reports/                       # Generated reports (JSON + PDF, Ed25519-signed)
 ├── logs/                          # Audit logs (JSON Lines format)
-├── tests/                         # Test suite (81 tests: drive-erase, file-erase, recovery, signing, web)
+├── tests/                         # Test suite (129 passing + 6 real-service-gated, see below)
 ├── run.py                         # Flask entry point
 ├── setup.py                       # CLI installation
 └── requirements.txt
@@ -445,19 +450,64 @@ For wiping system disks in a production environment:
 
 ## Future Improvements
 
-Shipped since the table below was first written: multi-pass DoD/Gutmann/NIST-Purge modes (`core/wipe_passes.py`), tamper-evident report signing (`core/report_signer.py`, Ed25519 rather than HMAC — stronger, and covers wipe/erase/recovery reports uniformly, not just audit logs), the Secure File & Folder Eraser + Advanced File Carving & Recovery modules, hdparm ATA Secure Erase, a SMART pre-wipe health check, Docker Compose deployment (see [Deployment](#deployment) below), and the full doc set under `docs/`. See [`docs/ROADMAP.md`](docs/ROADMAP.md) for current, actively-maintained status. Remaining open items:
+Shipped since the table below was first written: multi-pass DoD/Gutmann/NIST-Purge modes (`core/wipe_passes.py`), tamper-evident report signing (`core/report_signer.py`, Ed25519 rather than HMAC — stronger, and covers wipe/erase/recovery reports uniformly, not just audit logs), the Secure File & Folder Eraser + Advanced File Carving & Recovery modules, hdparm ATA Secure Erase, a SMART pre-wipe health check, Docker Compose deployment (see [Deployment](#deployment) below), the full doc set under `docs/`, a PostgreSQL-backed persistence option, LDAP/AD authentication, and SIEM forwarding (see [Enterprise Integrations](#enterprise-integrations) below). See [`docs/ROADMAP.md`](docs/ROADMAP.md) for current, actively-maintained status. Remaining open items:
 
 | Feature | Priority | Description |
 |---------|----------|-------------|
 | Disk progress bar | Medium | Parse dd status=progress output for real-time % |
 | Concurrent wipe | Medium | Thread pool for wiping multiple disks simultaneously |
-| Database backend | High | Replace in-memory stores with PostgreSQL |
-| LDAP/AD auth | High | Enterprise SSO integration |
 | S3 report upload | Medium | Push reports to immutable cloud storage |
 | Wipe scheduling | Medium | Schedule future wipes via APScheduler |
 | REST API | Medium | Full JSON API for integration with asset management |
-| SIEM integration | High | Direct log forwarding to Splunk/Elastic |
 | Bootable ISO / PXE | High | Wiping the running OS disk — the one limitation no software wiper can solve locally |
+
+## Enterprise Integrations
+
+All three are opt-in via environment variables — unset, the app behaves exactly as it always has (in-memory storage, local bcrypt accounts, no external log forwarding).
+
+### Database backend (`web/db.py`, `web/db_models.py`)
+
+Set `DATABASE_URL` to persist users and registered machines instead of losing them on every restart:
+
+```bash
+export DATABASE_URL="postgresql+psycopg2://wiperx:yourpassword@localhost/wiperx"   # production
+export DATABASE_URL="sqlite:////absolute/path/to/wiperx.db"                       # file-based, no server
+```
+
+Tables are created automatically on first run (`Base.metadata.create_all`) and the 3 demo accounts are seeded if the users table is empty. Implementation note: `get_user_store()`/`get_machine_store()` return a `collections.abc.MutableMapping` backed by SQLAlchemy when a database is configured, so every existing call site (`store[id]`, `store[id] = x`, `store.pop(id)`, `list(store.values())`) works unchanged regardless of backend — see `docs/TECHNICAL_DOCUMENTATION.md` for the full design. Verified against a real `postgres:16-alpine` container during development, not just SQLite.
+
+### LDAP / Active Directory authentication (`web/ldap_auth.py`)
+
+Set `WIPERX_LDAP_URL` to authenticate against a directory instead of (or alongside — local accounts still work as a break-glass fallback) local passwords:
+
+```bash
+export WIPERX_LDAP_URL="ldaps://dc.example.com:636"
+export WIPERX_LDAP_BIND_DN="cn=service-account,dc=example,dc=com"
+export WIPERX_LDAP_BIND_PASSWORD="..."
+export WIPERX_LDAP_USER_BASE_DN="ou=people,dc=example,dc=com"
+export WIPERX_LDAP_USER_FILTER="(sAMAccountName={username})"   # AD; default is "(uid={username})" for generic LDAP
+export WIPERX_LDAP_GROUP_BASE_DN="ou=groups,dc=example,dc=com"
+export WIPERX_LDAP_ADMIN_GROUP="wiperx-admins"      # group cn mapped to ADMIN role
+export WIPERX_LDAP_OPERATOR_GROUP="wiperx-operators" # group cn mapped to OPERATOR role
+                                                       # (unmapped users default to VIEWER)
+```
+
+Uses search-then-bind (works for both generic LDAP with a service account and AD, which doesn't allow binding directly as a bare username). A successful bind just-in-time provisions/updates a local user record with the mapped role, so RBAC (`current_user.can(...)`) works identically for LDAP and local accounts afterward. Verified end-to-end against a real `osixia/openldap` container during development — search, bind, wrong-password rejection, and group→role mapping all confirmed live, not mocked.
+
+### SIEM forwarding (`core/siem_forwarder.py`)
+
+Set either (or both) to ship every audit event to a SIEM as it's logged:
+
+```bash
+export WIPERX_SPLUNK_HEC_URL="https://splunk.example.com:8088/services/collector/event"
+export WIPERX_SPLUNK_HEC_TOKEN="..."
+
+export WIPERX_ELASTIC_URL="https://es.example.com:9200"
+export WIPERX_ELASTIC_INDEX="wiperx-audit"          # default shown
+export WIPERX_ELASTIC_API_KEY="..."                  # or WIPERX_ELASTIC_USERNAME/_PASSWORD
+```
+
+Delivery is asynchronous (a daemon worker thread drains a bounded queue) and best-effort — a slow or unreachable SIEM adds zero latency to the wipe/erase/recovery operation that triggered the event, and events are dropped (with a rate-limited warning) rather than blocking if the queue backs up. Verified with a real local HTTP server capturing actual Splunk HEC and Elasticsearch `_bulk` API requests, confirming payload shape and headers, not just that `requests.post` was called.
 
 ## Deployment
 
