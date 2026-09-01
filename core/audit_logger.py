@@ -10,7 +10,8 @@ Log format: JSON Lines (one JSON object per line) for easy parsing.
 Log location: /logs/wiperx_audit_<date>.log
 
 In a production deployment, these logs should be:
-  - Sent to a centralized SIEM (Splunk, ELK, etc.)
+  - Sent to a centralized SIEM (Splunk, ELK, etc.) — done, see
+    core/siem_forwarder.py; disabled unless a target is configured.
   - Stored on immutable storage (write-once S3, WORM disks)
   - Signed with HMAC to detect tampering
 """
@@ -23,8 +24,17 @@ import getpass
 from datetime import datetime
 from pathlib import Path
 
+from core import siem_forwarder
+
 LOGS_DIR = Path(__file__).parent.parent / "logs"
 LOGS_DIR.mkdir(exist_ok=True)
+
+
+def _safe_getuser() -> str:
+    try:
+        return getpass.getuser()
+    except Exception:
+        return "unknown"
 
 
 def get_audit_logger() -> logging.Logger:
@@ -57,19 +67,12 @@ def get_audit_logger() -> logging.Logger:
                 "event": record.getMessage(),
                 "module": record.module,
                 "host": socket.gethostname(),
-                "user": self._safe_getuser(),
+                "user": _safe_getuser(),
                 "pid": os.getpid(),
             }
             if hasattr(record, "extra_data"):
                 log_entry["data"] = record.extra_data
             return json.dumps(log_entry)
-
-        @staticmethod
-        def _safe_getuser():
-            try:
-                return getpass.getuser()
-            except Exception:
-                return "unknown"
 
     file_handler.setFormatter(JsonFormatter())
     logger.addHandler(file_handler)
@@ -85,6 +88,9 @@ def get_audit_logger() -> logging.Logger:
 def log_event(event: str, data: dict = None):
     """
     Log an audit event with optional structured data.
+
+    Also best-effort forwarded to a SIEM target if one is configured (see
+    core/siem_forwarder.py) - non-blocking, and a no-op when none is set.
 
     Args:
         event : Description of the event.
@@ -103,6 +109,20 @@ def log_event(event: str, data: dict = None):
     if data:
         record.extra_data = data
     audit_logger.handle(record)
+
+    if siem_forwarder.is_configured():
+        entry = {
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "level": "INFO",
+            "event": event,
+            "module": "audit_logger",
+            "host": socket.gethostname(),
+            "user": _safe_getuser(),
+            "pid": os.getpid(),
+        }
+        if data:
+            entry["data"] = data
+        siem_forwarder.forward_event(entry)
 
 
 def read_recent_events(limit: int = 20) -> list:
