@@ -407,30 +407,37 @@ class ExecutionManager:
         """Check for root/admin privileges on the target."""
         from core.os_detector import OSType
         from core.executors import LocalExecutor
+        from core.platforms import get_adapter
 
         if isinstance(executor, LocalExecutor):
-            import os
-            if platform.system().lower() != "windows":
-                if os.geteuid() != 0:
-                    raise PermissionError(
-                        "WiperX requires root privileges. Run with sudo."
-                    )
+            adapter = get_adapter(os_type if os_type in (
+                OSType.LINUX, OSType.WINDOWS, OSType.DARWIN) else None)
+            if not adapter.is_admin():
+                raise PermissionError(
+                    "WiperX requires elevated privileges. " + adapter.elevate_hint()
+                )
             log_fn("[Safety Check 1] PASSED: Running with required privileges.")
             return
 
         # Remote: check via command
-        if os_type == OSType.LINUX:
+        if os_type in (OSType.LINUX, OSType.DARWIN):
             result = executor.run_command("id -u")
             if result.strip() != "0":
                 raise PermissionError(
                     f"Remote user is not root (id={result.strip()}). "
-                    "SSH as root or use sudo."
+                    "Connect as root or use sudo."
                 )
         elif os_type == OSType.WINDOWS:
             result = executor.run_command(
-                "[Security.Principal.WindowsIdentity]::GetCurrent().Name"
+                "([Security.Principal.WindowsPrincipal]"
+                "[Security.Principal.WindowsIdentity]::GetCurrent())"
+                ".IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)"
             )
-            log_fn(f"[Safety Check 1] Remote user: {result.strip()}")
+            if result.strip().lower() != "true":
+                raise PermissionError(
+                    "Remote Windows session is not elevated. "
+                    "Use an account in the Administrators role."
+                )
 
         log_fn("[Safety Check 1] PASSED: Privileges verified.")
 

@@ -1,0 +1,62 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wiperx"
+version = "1.1.0"
+description = "Cross-platform secure data erasure and forensic recovery toolkit"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "WiperX Team" }]
+
+dependencies = [
+  "Flask>=3.0.2",
+  "Flask-Login>=0.6.3",
+  "Flask-WTF>=1.2.1",
+  "Werkzeug>=3.0.1",
+  "Jinja2>=3.1.3",
+  "paramiko>=3.4.0",
+  "pywinrm>=0.4.3",
+  "requests-credssp>=2.0.0",
+  "requests>=2.31",
+  "reportlab>=4.1.0",
+  "psutil>=5.9.8",
+  "python-dotenv>=1.0.1",
+  "colorama>=0.4.6",
+  "tabulate>=0.9.0",
+  "click>=8.1.7",
+  "cryptography>=42.0.4",
+  "bcrypt>=4.1.2",
+  "python-json-logger>=2.0.7",
+  "gunicorn>=21.2.0",
+  "Pillow>=11.0",
+  "pypdf>=4.2.0",
+  "mutagen>=1.47.0",
+  "pytsk3>=20240320 ; sys_platform != 'win32'",
+  "python-magic>=0.4.27 ; sys_platform != 'win32'",
+]
+
+[project.optional-dependencies]
+win = ["python-magic-bin>=0.4.14", "pywin32>=306"]
+db = ["SQLAlchemy>=2.0.52", "psycopg2-binary>=2.9.12"]
+ldap = ["ldap3>=2.9.1"]
+dev = ["pytest>=8.1.1", "pytest-mock>=3.12.0", "black>=24.3.0", "flake8>=7.0.0"]
+
+[project.scripts]
+wiperx = "cli.wiperx_cli:cli"
+
+[tool.setuptools]
+packages = ["core", "cli", "web"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310", "py311", "py312", "py313"]
+
+[tool.pytest.ini_options]
+markers = [
+  "linux: test exercises a Linux-only code path",
+  "win: test exercises a Windows-only code path",
+  "mac: test exercises a macOS-only code path",
+]

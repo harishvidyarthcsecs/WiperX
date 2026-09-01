@@ -80,11 +80,18 @@ class DiskScanner:
         "lsblk -d -o NAME,ROTA,TRAN,SIZE,MODEL,SERIAL --noheadings --bytes"
     )
 
-    # Windows PowerShell command — structured output
+    # Windows PowerShell command — joins Get-Disk with Get-PhysicalDisk for an
+    # accurate media type, and flags the disk that hosts the system drive.
     WINDOWS_GET_DISK_CMD = (
-        "powershell -Command \""
-        "Get-Disk | Select-Object Number,Model,SerialNumber,"
-        "Size,BusType,OperationalStatus | ConvertTo-Csv -NoTypeInformation\""
+        "powershell -NoProfile -Command \""
+        "$s=(Get-Partition | Where-Object {$_.DriveLetter -eq "
+        "$env:SystemDrive.Substring(0,1)}).DiskNumber; "
+        "Get-Disk | ForEach-Object { $p=Get-PhysicalDisk -DeviceNumber $_.Number "
+        "-ErrorAction SilentlyContinue; [PSCustomObject]@{Number=$_.Number;"
+        "Model=$_.Model;SerialNumber=$_.SerialNumber;Size=$_.Size;"
+        "BusType=$_.BusType;MediaType=$p.MediaType;IsBoot=$_.IsBoot;"
+        "IsSystem=($_.Number -eq $s);OperationalStatus=$_.OperationalStatus} } "
+        "| ConvertTo-Csv -NoTypeInformation\""
     )
 
     # Linux command to check mounted devices
@@ -120,6 +127,8 @@ class DiskScanner:
             return self._scan_linux()
         elif self.os_type == OSType.WINDOWS:
             return self._scan_windows()
+        elif self.os_type == OSType.DARWIN:
+            return self._scan_macos()
         else:
             raise RuntimeError(
                 f"[DiskScanner] Unsupported OS type: {self.os_type}. "
@@ -248,16 +257,24 @@ class DiskScanner:
                 except ValueError:
                     size_bytes = 0
 
-                # Determine disk type from bus
-                if "nvme" in bus_type.lower():
+                media_type = row.get("MediaType", "").strip().lower()
+                is_boot = row.get("IsBoot", "").strip().lower() == "true"
+                is_system = row.get("IsSystem", "").strip().lower() == "true"
+                # Fallback for the older Select-Object form with no IsSystem col.
+                if "IsSystem" not in row and "IsBoot" not in row:
+                    is_system = (number == "0")
+
+                # Determine disk type: MediaType (Get-PhysicalDisk) wins, then bus.
+                if "ssd" in media_type or media_type == "4":
+                    disk_type = "NVMe" if "nvme" in bus_type.lower() else "SSD"
+                elif "hdd" in media_type or media_type == "3":
+                    disk_type = "HDD"
+                elif "nvme" in bus_type.lower():
                     disk_type = "NVMe"
                 elif "usb" in bus_type.lower():
-                    disk_type = "SSD"  # USB could be SSD or HDD; default SSD
+                    disk_type = "SSD"
                 else:
-                    disk_type = "HDD"  # Conservative default
-
-                # Disk 0 is typically the system disk on Windows
-                is_system = (number == "0")
+                    disk_type = "HDD"
 
                 disk = DiskInfo(
                     identifier=number,
@@ -267,8 +284,8 @@ class DiskScanner:
                     size_bytes=size_bytes,
                     disk_type=disk_type,
                     bus_type=bus_type,
-                    is_system=is_system,
-                    is_mounted=is_system,  # Treat system disk as mounted
+                    is_system=is_system or is_boot,
+                    is_mounted=is_system or is_boot,
                     raw=str(row),
                 )
                 disks.append(disk)
@@ -279,6 +296,104 @@ class DiskScanner:
 
         logger.info(f"[DiskScanner] Windows scan complete: {len(disks)} disk(s) found.")
         return disks
+
+    # ------------------------------------------------------------------
+    # macOS Scanning
+    # ------------------------------------------------------------------
+
+    MACOS_LIST_CMD = "diskutil list -plist"
+    MACOS_INFO_CMD = "diskutil info -plist {ident}"
+    MACOS_ROOT_CMD = "diskutil info -plist /"
+    MACOS_MOUNT_CMD = "mount"
+
+    def _scan_macos(self) -> List[DiskInfo]:
+        """Enumerate whole disks via `diskutil` plist output."""
+        import plistlib
+
+        raw_list = self.executor.run_command(self.MACOS_LIST_CMD)
+        if not raw_list:
+            logger.error("[DiskScanner] diskutil list returned no output.")
+            return []
+
+        try:
+            listing = plistlib.loads(raw_list.encode("utf-8", "replace"))
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"[DiskScanner] Could not parse diskutil list plist: {e}")
+            return []
+
+        whole = listing.get("WholeDisks") or []
+        root_whole = self._macos_root_whole_disk()
+        mount_blob = ""
+        try:
+            mount_blob = self.executor.run_command(self.MACOS_MOUNT_CMD) or ""
+        except Exception:  # noqa: BLE001
+            pass
+
+        disks: List[DiskInfo] = []
+        for ident in whole:
+            info = {}
+            try:
+                info_raw = self.executor.run_command(
+                    self.MACOS_INFO_CMD.format(ident=ident)
+                )
+                info = plistlib.loads(info_raw.encode("utf-8", "replace"))
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"[DiskScanner] diskutil info {ident} failed: {e}")
+
+            size_bytes = int(info.get("Size") or info.get("TotalSize") or 0)
+            model = (info.get("MediaName") or info.get("IORegistryEntryName")
+                     or "Unknown")
+            serial = info.get("DiskUUID", "") or ""
+            protocol = (info.get("BusProtocol") or info.get("Protocol") or "").lower()
+            solid_state = bool(info.get("SolidState"))
+
+            if "nvme" in protocol or "pci" in protocol:
+                disk_type, bus_type = ("NVMe", "NVMe") if solid_state else ("SSD", "PCIe")
+            elif "usb" in protocol:
+                disk_type, bus_type = ("SSD" if solid_state else "HDD"), "USB"
+            elif "thunderbolt" in protocol:
+                disk_type, bus_type = ("SSD" if solid_state else "HDD"), "Thunderbolt"
+            elif solid_state:
+                disk_type, bus_type = "SSD", (protocol.upper() or "SATA")
+            else:
+                disk_type, bus_type = "HDD", (protocol.upper() or "SATA")
+
+            is_system = bool(root_whole) and ident == root_whole
+            is_mounted = (
+                bool(info.get("MountPoint"))
+                or ("/dev/%s" % ident) in mount_blob
+                or ("/dev/%ss" % ident) in mount_blob  # diskNsM slices
+            )
+
+            disks.append(DiskInfo(
+                identifier=ident,
+                model=model,
+                serial=serial,
+                size_human=self._bytes_to_human(size_bytes),
+                size_bytes=size_bytes,
+                disk_type=disk_type,
+                bus_type=bus_type,
+                is_system=is_system,
+                is_mounted=is_mounted,
+                raw=str(info) if info else ident,
+            ))
+
+        logger.info(f"[DiskScanner] macOS scan complete: {len(disks)} disk(s) found.")
+        return disks
+
+    def _macos_root_whole_disk(self) -> Optional[str]:
+        """Whole-disk identifier backing the `/` filesystem (e.g. 'disk0')."""
+        import plistlib
+
+        try:
+            raw = self.executor.run_command(self.MACOS_ROOT_CMD)
+            info = plistlib.loads(raw.encode("utf-8", "replace"))
+            return (info.get("ParentWholeDisk")
+                    or info.get("APFSContainerReference")
+                    or None)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[DiskScanner] Could not resolve macOS root disk: {e}")
+            return None
 
     # ------------------------------------------------------------------
     # Helpers

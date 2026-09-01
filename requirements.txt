@@ -45,16 +45,21 @@ ldap3==2.9.1
 requests==2.34.2
 
 # Module 3 — Forensic Carving & Recovery
-pytsk3==20260715           # The Sleuth Kit bindings: filesystem walk + undelete
-python-magic==0.4.27       # libmagic content classification (needs libmagic system pkg)
+#   pytsk3 / python-magic build against system libs that ship on Linux and macOS
+#   but not Windows; the carver degrades gracefully when they are absent.
+pytsk3==20260715 ; sys_platform != "win32"      # The Sleuth Kit bindings: FS walk + undelete
+python-magic==0.4.27 ; sys_platform != "win32"  # libmagic content classification
+python-magic-bin==0.4.14 ; sys_platform == "win32"  # bundles libmagic for Windows
+pywin32==306 ; sys_platform == "win32"          # raw \\.\PhysicalDrive access / ACLs
 Pillow==11.3.0             # image validator (JPEG/PNG structural verify)
 pypdf==4.2.0               # PDF validator / structural parse
 mutagen==1.47.0            # audio/video container validator
 # libewf-python            # OPTIONAL: E01 evidence image support (install from distro pkg)
 
 # System packages (install separately, NOT via pip):
-#   Linux:  apt install sleuthkit testdisk libmagic1 nvme-cli hdparm util-linux
-#   macOS:  brew install sleuthkit libmagic   (dev host only; runtime target is Linux)
+#   Linux:    apt install sleuthkit testdisk libmagic1 nvme-cli hdparm util-linux e2fsprogs
+#   macOS:    brew install sleuthkit libmagic          (diskutil ships with the OS)
+#   Windows:  no extra packages; diskpart / Get-Disk are built in
 
 # Production WSGI server (see docs/ROADMAP.md Docker Compose deployment)
 gunicorn==21.2.0

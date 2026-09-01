@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 class OSType(str, Enum):
     LINUX = "linux"
     WINDOWS = "windows"
+    DARWIN = "darwin"
     UNSUPPORTED = "unsupported"
 
 
@@ -44,6 +45,8 @@ class OSDetector:
             return OSType.LINUX
         elif "windows" in system:
             return OSType.WINDOWS
+        elif "darwin" in system:
+            return OSType.DARWIN
         else:
             logger.warning(f"[OSDetector] Unsupported local OS: {system}")
             return OSType.UNSUPPORTED
@@ -72,13 +75,17 @@ class OSDetector:
         if ssh_executor is not None:
             try:
                 result = ssh_executor.run_command("uname -s")
-                if result and "linux" in result.strip().lower():
+                uname = (result or "").strip().lower()
+                if "linux" in uname:
                     logger.info("[OSDetector] Remote OS detected via SSH: LINUX")
                     return OSType.LINUX
+                elif "darwin" in uname:
+                    logger.info("[OSDetector] Remote OS detected via SSH: DARWIN")
+                    return OSType.DARWIN
                 elif result:
-                    # Could be macOS or BSD — treat as unsupported in this context
+                    # BSD or something else we don't drive — leave for WinRM / UNSUPPORTED
                     logger.warning(
-                        f"[OSDetector] SSH uname returned unexpected value: {result}"
+                        f"[OSDetector] SSH uname returned unhandled value: {result}"
                     )
             except Exception as e:
                 logger.debug(f"[OSDetector] SSH detection failed: {e}")

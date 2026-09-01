@@ -88,6 +88,11 @@ class WipeStrategy(ABC):
             bool: True if every write pass completed (ENOSPC on an unbounded
             fill counts as success — the device is full).
         """
+        # GNU `dd` / `/dev/urandom` / `blockdev` only exist on Linux. For a local
+        # non-Linux target, do the same passes with portable Python raw IO.
+        if self._should_use_python_passes(executor):
+            return self._run_passes_python(device_path, passes, log_callback)
+
         quoted = shlex.quote(device_path)
         bs_mib = 4
         count_clause = ""
@@ -150,6 +155,89 @@ class WipeStrategy(ABC):
                     )
                     continue
                 self._log(f"ERROR: pass {index}/{total} ({label}) failed: {exc}", log_callback)
+                return False
+
+        self._log(f"All {total} pass(es) complete on {device_path}", log_callback)
+        return True
+
+    @staticmethod
+    def _should_use_python_passes(executor) -> bool:
+        """True for a LOCAL non-Linux target (no GNU dd / /dev/urandom)."""
+        import platform as _pf
+
+        try:
+            from core.executors import LocalExecutor
+        except Exception:  # noqa: BLE001
+            return False
+        return isinstance(executor, LocalExecutor) and _pf.system().lower() != "linux"
+
+    def _run_passes_python(self, device_path, passes, log_callback=None) -> bool:
+        """Portable raw-IO implementation of :meth:`_run_passes`.
+
+        Opens the raw device once per pass and streams a 4 MiB buffer end to
+        end. Used on local macOS / Windows where the `dd` pipeline is absent.
+        """
+        import os as _os
+
+        chunk = 4 * 1024 * 1024
+
+        def _size() -> int:
+            try:
+                fd = _os.open(device_path, _os.O_RDONLY)
+                try:
+                    return _os.lseek(fd, 0, _os.SEEK_END)
+                finally:
+                    _os.close(fd)
+            except OSError:
+                return 0
+
+        total_bytes = _size()
+        total = len(passes)
+        for index, spec in enumerate(passes, start=1):
+            kind = getattr(spec, "kind", "random")
+            byte = getattr(spec, "byte", None)
+            if kind == "verify":
+                self._log(f"Pass {index}/{total}: verify - deferred to verifier",
+                          log_callback)
+                continue
+
+            if kind == "random":
+                label, make = "random", lambda: _os.urandom(chunk)
+            elif byte == 0:
+                label, make = "0x00", lambda: b"\x00" * chunk
+            else:
+                b = bytes([int(byte)])
+                label, make = f"0x{int(byte):02x}", lambda: b * chunk
+
+            self._log(f"Pass {index}/{total} ({label}): raw write to {device_path}",
+                      log_callback)
+            try:
+                flags = _os.O_WRONLY
+                if hasattr(_os, "O_BINARY"):
+                    flags |= _os.O_BINARY
+                fd = _os.open(device_path, flags)
+                written = 0
+                try:
+                    while total_bytes == 0 or written < total_bytes:
+                        buf = make()
+                        if total_bytes:
+                            buf = buf[: total_bytes - written]
+                        n = _os.write(fd, buf)
+                        written += n
+                        if n == 0:
+                            break
+                    _os.fsync(fd)
+                finally:
+                    _os.close(fd)
+                self._log(f"Pass {index}/{total} ({label}) wrote {written} bytes",
+                          log_callback)
+            except OSError as exc:
+                if getattr(exc, "errno", None) == 28:  # ENOSPC
+                    self._log(f"Pass {index}/{total} ({label}) filled the device",
+                              log_callback)
+                    continue
+                self._log(f"ERROR: pass {index}/{total} ({label}) failed: {exc}",
+                          log_callback)
                 return False
 
         self._log(f"All {total} pass(es) complete on {device_path}", log_callback)
@@ -531,6 +619,101 @@ class WindowsWipeStrategy(WipeStrategy):
 
 
 # ---------------------------------------------------------------------------
+# macOS Strategies — diskutil secureErase
+# ---------------------------------------------------------------------------
+
+_MACOS_SECURE_ERASE_LEVEL = {
+    # pass-count -> `diskutil secureErase` level
+    1: "1",   # single random pass
+    3: "4",   # 3-pass
+    7: "2",   # 7-pass US DoE
+    35: "3",  # 35-pass Gutmann
+}
+
+
+class MacHDDWipeStrategy(WipeStrategy):
+    """External / spinning macOS media via `diskutil secureErase`.
+
+    Level is chosen from the requested pass count; default is a single
+    zero pass (level 0), matching NIST 800-88 Clear.
+    """
+
+    name = "macOS-SecureErase"
+    description = "diskutil secureErase (external / HDD)"
+
+    def _level(self, passes) -> str:
+        if not passes:
+            return "0"
+        n = len([p for p in passes if getattr(p, "kind", "") != "verify"])
+        return _MACOS_SECURE_ERASE_LEVEL.get(n, "1")
+
+    def execute(self, disk, executor, log_callback=None, passes=None) -> bool:
+        from core.platforms import get_adapter
+
+        dev = get_adapter().raw_device_path(disk.identifier) \
+            if not disk.identifier.startswith("/") else disk.identifier
+        if not dev.startswith("/dev/"):
+            dev = "/dev/r" + disk.identifier if not disk.identifier.startswith("disk") \
+                else "/dev/r" + disk.identifier
+        level = self._level(passes)
+        cmd = f"diskutil secureErase {shlex.quote(level)} {shlex.quote(dev)}"
+        self._log(f"Executing: {cmd}", log_callback)
+        try:
+            out = executor.run_command(cmd, timeout=14400)
+            self._log(f"diskutil output: {str(out).strip()[:300]}", log_callback)
+            self._log(f"Secure erase complete on {dev}", log_callback)
+            return True
+        except Exception as exc:  # noqa: BLE001
+            self._log(f"ERROR: diskutil secureErase failed on {dev}: {exc}", log_callback)
+            return False
+
+
+class MacSSDWipeStrategy(WipeStrategy):
+    """macOS SSD wipe.
+
+    `diskutil secureErase` on an *internal* Apple-silicon SSD is refused by
+    macOS (the controller blocks raw writes); the vendor-supported path there
+    is cryptographic erase — FileVault + "Erase All Content and Settings", or
+    re-formatting the APFS container. This strategy attempts secureErase and,
+    if the OS rejects it, deletes and recreates the APFS container and records
+    that a crypto-erase is the effective sanitisation.
+    """
+
+    name = "macOS-SSD"
+    description = "diskutil secureErase, APFS container reset fallback"
+
+    def execute(self, disk, executor, log_callback=None, passes=None) -> bool:
+        dev = disk.identifier if disk.identifier.startswith("disk") else disk.identifier
+        raw = f"/dev/r{dev}"
+        cmd = f"diskutil secureErase 0 {shlex.quote(raw)}"
+        self._log(f"Executing: {cmd}", log_callback)
+        try:
+            out = executor.run_command(cmd, timeout=14400)
+            self._log(f"diskutil output: {str(out).strip()[:300]}", log_callback)
+            self._log(f"Secure erase complete on {raw}", log_callback)
+            return True
+        except Exception as exc:  # noqa: BLE001
+            self._log(
+                "NOTE: secureErase was refused (expected on an internal "
+                f"Apple SSD): {exc}", log_callback,
+            )
+            self._log(
+                "Falling back to APFS container reset. On these drives the "
+                "hardware AES key makes a container reset an effective "
+                "cryptographic erase (NIST 800-88 Purge equivalent).",
+                log_callback,
+            )
+            reset = f"diskutil apfs deleteContainer {shlex.quote(f'/dev/{dev}')}"
+            try:
+                out = executor.run_command(reset, timeout=3600)
+                self._log(f"apfs deleteContainer: {str(out).strip()[:300]}", log_callback)
+                return True
+            except Exception as exc2:  # noqa: BLE001
+                self._log(f"ERROR: APFS container reset failed: {exc2}", log_callback)
+                return False
+
+
+# ---------------------------------------------------------------------------
 # Strategy Factory
 # ---------------------------------------------------------------------------
 
@@ -568,6 +751,11 @@ def get_strategy(disk, os_type, method: str = "auto") -> WipeStrategy:
 
     if os_type == OSType.WINDOWS:
         return WindowsWipeStrategy()
+
+    if os_type == OSType.DARWIN:
+        if disk.disk_type in ("SSD", "NVMe") and "usb" not in disk.bus_type.lower():
+            return MacSSDWipeStrategy()
+        return MacHDDWipeStrategy()
 
     if os_type == OSType.LINUX:
         if disk.bus_type == "USB":

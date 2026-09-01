@@ -135,7 +135,17 @@ def load_private_key(create_if_missing: bool = True) -> "Ed25519PrivateKey":
             encryption_algorithm=serialization.NoEncryption(),
         )
     )
-    os.chmod(key_path, stat.S_IRUSR | stat.S_IWUSR)  # 0600
+    # Lock the key to the current user. On POSIX this is chmod 0600; on Windows
+    # chmod only flips the read-only bit, so the adapter uses icacls instead.
+    try:
+        from core.platforms import get_adapter
+
+        get_adapter().protect_key_file(str(key_path))
+    except Exception:  # noqa: BLE001 - never fail key generation over perms
+        try:
+            os.chmod(key_path, stat.S_IRUSR | stat.S_IWUSR)  # 0600
+        except OSError:
+            pass
 
     pub_path = key_path.with_suffix(".pub.pem")
     pub_path.write_bytes(

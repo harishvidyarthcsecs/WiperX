@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  test:
+    name: test (${{ matrix.os }} / py${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install Linux forensic system packages
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y sleuthkit libmagic1 e2fsprogs
+
+      - name: Install macOS system packages
+        if: runner.os == 'macOS'
+        run: brew install sleuthkit libmagic
+
+      - name: Install project
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Lint (syntax / undefined names — blocking)
+        run: flake8 core cli web tests --count --select=E9,F63,F7,F82 --show-source
+
+      - name: Format check (black — advisory)
+        continue-on-error: true
+        run: black --check --diff core cli web tests
+
+      - name: Test
+        run: pytest -q
+
+  web-assets:
+    name: web assets are built
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm ci
+      - run: npm run build:css
+      - name: Fail if the committed stylesheet is stale
+        run: git diff --exit-code -- web/static/css/app.css

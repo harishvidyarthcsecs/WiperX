@@ -34,6 +34,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+# The web UI stylesheet (web/static/css/app.css) is a committed build artifact
+# produced by `npm run build:css` (Tailwind). Node is a dev-only dependency and
+# is deliberately NOT installed in the runtime image; rebuild and commit the CSS
+# on the host when templates change (CI verifies it is current).
+
 # reports/, logs/, cases/, keys/ are runtime state - mounted as volumes in
 # docker-compose.yml so they survive a container recreate. Create them here
 # too so `docker run` without compose still works.

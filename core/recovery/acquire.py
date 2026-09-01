@@ -36,10 +36,54 @@ class SourceError(RuntimeError):
 
 
 def _is_block_device(path: str) -> bool:
+    # Windows raw-device namespace: \\.\PhysicalDrive0, \\.\C:
+    if path.startswith("\\\\.\\") or path.startswith("//./"):
+        return True
     try:
-        return os.path.exists(path) and (os.stat(path).st_mode & 0o170000) == 0o060000
+        if not os.path.exists(path):
+            return False
+        mode = os.stat(path).st_mode
+        # POSIX block device (Linux /dev/sdX, macOS /dev/diskN and /dev/rdiskN).
+        if (mode & 0o170000) == 0o060000:
+            return True
+        # macOS raw disk nodes report as character devices.
+        if (mode & 0o170000) == 0o020000 and os.path.basename(path).startswith(
+            ("disk", "rdisk")
+        ):
+            return True
+        return False
     except OSError:
         return False
+
+
+def _windows_device_size(path: str) -> int:
+    """Size of a \\\\.\\PhysicalDrive* via IOCTL_DISK_GET_LENGTH_INFO."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        GENERIC_READ = 0x80000000
+        FILE_SHARE_RW = 0x00000001 | 0x00000002
+        OPEN_EXISTING = 3
+        IOCTL = 0x0007405C  # IOCTL_DISK_GET_LENGTH_INFO
+
+        h = ctypes.windll.kernel32.CreateFileW(
+            path, GENERIC_READ, FILE_SHARE_RW, None, OPEN_EXISTING, 0, None
+        )
+        if h == wintypes.HANDLE(-1).value:
+            return 0
+        try:
+            length = ctypes.c_ulonglong(0)
+            returned = wintypes.DWORD(0)
+            ok = ctypes.windll.kernel32.DeviceIoControl(
+                h, IOCTL, None, 0, ctypes.byref(length),
+                ctypes.sizeof(length), ctypes.byref(returned), None,
+            )
+            return int(length.value) if ok else 0
+        finally:
+            ctypes.windll.kernel32.CloseHandle(h)
+    except Exception:  # noqa: BLE001
+        return 0
 
 
 def _rw_mounted(path: str) -> bool:
@@ -164,11 +208,16 @@ def open_source(path: str, *, allow_mounted: bool = False) -> Source:
             "corrupt the recovery)."
         )
 
-    fd = os.open(path, os.O_RDONLY)
+    open_flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
+    fd = os.open(path, open_flags)
     try:
         if is_device:
             size = os.lseek(fd, 0, os.SEEK_END)
             os.lseek(fd, 0, os.SEEK_SET)
+            if size == 0 and os.name == "nt":
+                # Windows \\.\PhysicalDrive* does not support seek-to-end sizing;
+                # fall back to IOCTL_DISK_GET_LENGTH_INFO.
+                size = _windows_device_size(path)
         else:
             size = os.path.getsize(path)
     except OSError as exc:

@@ -127,20 +127,10 @@ class LocalExecutor(BaseExecutor):
         pass
 
     def check_privileges(self) -> bool:
-        """
-        Check if the current process has root/admin privileges.
+        """True if the current process has root (POSIX) / Administrator (Windows).
 
-        Returns:
-            bool: True if running as root (Linux) or Administrator (Windows).
+        Delegates to the local platform adapter so there is one implementation.
         """
-        import os
-        import platform
+        from core.platforms import get_adapter
 
-        if platform.system().lower() == "windows":
-            try:
-                import ctypes
-                return ctypes.windll.shell32.IsUserAnAdmin() != 0
-            except Exception:
-                return False
-        else:
-            return os.geteuid() == 0
+        return get_adapter().is_admin()

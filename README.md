@@ -29,10 +29,21 @@ WiperX is a **unified, modular disk sanitization system** that operates as both 
 
 ### Supported Platforms
 
-| OS       | Local | Remote (SSH) | Remote (WinRM) |
-|----------|-------|-------------|----------------|
-| Linux    | ✅    | ✅           | ❌              |
-| Windows  | ✅    | ❌           | ✅              |
+| OS       | Local | Remote (SSH) | Remote (WinRM) | Drive eraser | Status |
+|----------|-------|--------------|----------------|--------------|--------|
+| Linux    | ✅    | ✅           | ❌              | `shred` / `blkdiscard` / `nvme format` / ATA Secure Erase / `dd` | hardware-verified |
+| Windows  | ✅    | ❌           | ✅              | `diskpart clean all` + portable multi-pass over `\\.\PhysicalDriveN`; `IsUserAnAdmin()` elevation gate | implemented, needs hardware verification |
+| macOS    | ✅    | ✅           | ❌              | `diskutil secureErase` (external / HDD); APFS-container crypto-erase for internal Apple SSDs | implemented, needs hardware verification |
+
+Elevation per OS: `sudo` on Linux/macOS, an elevated PowerShell (Administrator) on
+Windows. The Secure File Eraser and Forensic Recovery modules run on all three without
+extra system packages beyond `sleuthkit` + `libmagic` (Linux/macOS) for the optional
+filesystem-undelete pass.
+
+macOS caveat: modern Apple-silicon internal SSDs refuse raw `secureErase`. The
+supported sanitisation there is cryptographic — FileVault + "Erase All Content and
+Settings", or the APFS-container reset WiperX performs — which the hardware AES key
+makes equivalent to NIST 800-88 Purge.
 
 ---
 
