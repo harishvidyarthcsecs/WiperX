@@ -30,6 +30,20 @@ bcrypt==4.1.2            # Password hashing
 # Logging & Monitoring
 python-json-logger==2.0.7  # Structured JSON logging
 
+# Persistence — optional, in-memory stores are the zero-config default
+# (see web/db.py). Set DATABASE_URL to opt in.
+SQLAlchemy==2.0.52
+psycopg2-binary==2.9.12    # PostgreSQL driver; SQLite needs no extra driver
+
+# Enterprise auth — optional, local bcrypt accounts are the zero-config
+# default (see web/ldap_auth.py). Set WIPERX_LDAP_URL to opt in.
+ldap3==2.9.1
+
+# SIEM forwarding — optional, disabled unless a target is configured
+# (see core/siem_forwarder.py). requests is already a transitive
+# dependency (pywinrm), but pinning it directly since we now import it.
+requests==2.34.2
+
 # Module 3 — Forensic Carving & Recovery
 pytsk3==20260715           # The Sleuth Kit bindings: filesystem walk + undelete
 python-magic==0.4.27       # libmagic content classification (needs libmagic system pkg)

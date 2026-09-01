@@ -27,7 +27,8 @@ import logging
 from flask import Flask
 from flask_login import LoginManager
 
-from web.models import get_user_store
+from web.models import get_user_store, seed_default_users_if_empty
+from web import db as web_db
 
 # Configure structured logging
 logging.basicConfig(
@@ -64,6 +65,13 @@ def create_app(config_override: dict = None) -> Flask:
 
     if config_override:
         app.config.update(config_override)
+
+    # ── Database (optional — DATABASE_URL unset means in-memory stores,
+    #    exactly as before; see web/db.py, web/models.py) ──
+    database_url = app.config.get("DATABASE_URL") or os.environ.get("DATABASE_URL")
+    if database_url:
+        web_db.init_db(database_url)
+        seed_default_users_if_empty()
 
     # ── Flask-Login ──
     login_manager = LoginManager()

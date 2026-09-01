@@ -9,6 +9,11 @@
 # container recreate doesn't lose certificates or invalidate old
 # signatures by rotating the signing key.
 #
+# User/machine storage defaults to in-memory (reset on every container
+# restart) unless DATABASE_URL is set - `db` below is a real Postgres
+# service, opt in by uncommenting `web`'s DATABASE_URL line. Verified
+# against this same postgres:16-alpine image during development.
+#
 # IMPORTANT - Module 1 (drive wipe) needs real access to host block
 # devices and root inside the container. Two ways to grant that,
 # neither on by default here (commented out - opt in deliberately,
@@ -27,6 +32,9 @@ services:
     # For local development against a live source tree instead of the
     # baked-in COPY, override with:
     #   command: python run.py --host 0.0.0.0 --port 5000 --debug
+    # depends_on:      # uncomment together with DATABASE_URL and `db` below
+    #   db:
+    #     condition: service_healthy
     expose:
       - "5000"
     environment:
@@ -36,6 +44,20 @@ services:
       WIPERX_WINRM_USER: ${WIPERX_WINRM_USER:-}
       WIPERX_WINRM_PASS: ${WIPERX_WINRM_PASS:-}
       WIPERX_SIGN_KEY: /app/keys/wiperx_sign_key.pem
+      # Uncomment for persistent (Postgres-backed) users/machines instead
+      # of in-memory - also uncomment the `db` service and its `depends_on`
+      # entry below:
+      # DATABASE_URL: postgresql+psycopg2://wiperx:${WIPERX_DB_PASSWORD:?set in .env}@db:5432/wiperx
+      # LDAP (optional, see docs/TECHNICAL_DOCUMENTATION.md):
+      # WIPERX_LDAP_URL: ${WIPERX_LDAP_URL:-}
+      # WIPERX_LDAP_BIND_DN: ${WIPERX_LDAP_BIND_DN:-}
+      # WIPERX_LDAP_BIND_PASSWORD: ${WIPERX_LDAP_BIND_PASSWORD:-}
+      # WIPERX_LDAP_USER_BASE_DN: ${WIPERX_LDAP_USER_BASE_DN:-}
+      # SIEM forwarding (optional):
+      # WIPERX_SPLUNK_HEC_URL: ${WIPERX_SPLUNK_HEC_URL:-}
+      # WIPERX_SPLUNK_HEC_TOKEN: ${WIPERX_SPLUNK_HEC_TOKEN:-}
+      # WIPERX_ELASTIC_URL: ${WIPERX_ELASTIC_URL:-}
+      # WIPERX_ELASTIC_INDEX: ${WIPERX_ELASTIC_INDEX:-wiperx-audit}
     volumes:
       - reports:/app/reports
       - logs:/app/logs
@@ -67,8 +89,26 @@ services:
       - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     restart: unless-stopped
 
+  # Uncomment (and web's DATABASE_URL above) to switch from in-memory to
+  # persistent user/machine storage. Verified against this exact image.
+  # db:
+  #   image: postgres:16-alpine
+  #   environment:
+  #     POSTGRES_USER: wiperx
+  #     POSTGRES_PASSWORD: ${WIPERX_DB_PASSWORD:?set in .env}
+  #     POSTGRES_DB: wiperx
+  #   volumes:
+  #     - dbdata:/var/lib/postgresql/data
+  #   restart: unless-stopped
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U wiperx"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+
 volumes:
   reports:
   logs:
   cases:
   keys:
+  # dbdata:
