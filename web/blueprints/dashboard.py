@@ -10,6 +10,7 @@ from flask_login import login_required, current_user
 
 from core import report_signer
 from core.audit_logger import read_recent_events
+from core.report_paths import kind_of
 from web.models import get_machine_store
 
 dashboard_bp = Blueprint("dashboard", __name__)
@@ -20,17 +21,12 @@ CASES_DIR = _ROOT / "cases"
 
 
 def _report_counts() -> dict:
-    counts = {"wipe": 0, "erase": 0, "freespace": 0, "other": 0}
+    counts = {"wipe": 0, "erase": 0, "freespace": 0, "recover": 0, "other": 0}
     if REPORTS_DIR.exists():
-        for f in REPORTS_DIR.glob("*.json"):
-            if f.name.startswith(("wipe_cert_", "wipe_report_")):
-                counts["wipe"] += 1
-            elif f.name.startswith("erase_cert_"):
-                counts["erase"] += 1
-            elif f.name.startswith("freespace_cert_"):
-                counts["freespace"] += 1
-            else:
-                counts["other"] += 1
+        for f in REPORTS_DIR.glob("**/*.json"):
+            counts[kind_of(f.name) if kind_of(f.name) in counts else "other"] += 1
+    if CASES_DIR.exists():
+        counts["recover"] += len(list(CASES_DIR.glob("**/case_report.json")))
     return counts
 
 
@@ -38,12 +34,15 @@ def _recent_reports(limit: int = 5) -> list:
     """Newest JSON reports + recovery cases, each with a signature verdict."""
     entries = []
     if REPORTS_DIR.exists():
-        for f in sorted(REPORTS_DIR.glob("*.json"), reverse=True)[:limit]:
+        files = sorted(REPORTS_DIR.glob("**/*.json"),
+                       key=lambda p: p.stat().st_mtime, reverse=True)[:limit]
+        for f in files:
             v = report_signer.verify_file(str(f))
             entries.append({
-                "name": f.name, "kind": "report",
+                "name": f.name, "kind": kind_of(f.name),
                 "valid": v.get("valid", False), "trusted": v.get("trusted", False),
-                "url": url_for("reports.view", filename=f.name),
+                "url": url_for("reports.view",
+                               filename=str(f.relative_to(REPORTS_DIR))),
             })
     if CASES_DIR.exists():
         for rep in sorted(CASES_DIR.glob("*/case_report.json"), reverse=True)[:limit]:

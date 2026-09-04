@@ -19,15 +19,21 @@ Reports include:
 import json
 import logging
 import os
-from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+from core.timeutils import utc_iso, utc_now
+
 logger = logging.getLogger(__name__)
 
-# Reports output directory
+# Reports output directory. Created lazily so that merely importing this
+# module has no filesystem side effect (keeps it unit-testable).
 REPORTS_DIR = Path(__file__).parent.parent / "reports"
-REPORTS_DIR.mkdir(exist_ok=True)
+
+
+def _ensure_reports_dir() -> Path:
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    return REPORTS_DIR
 
 
 class ReportGenerator:
@@ -66,7 +72,7 @@ class ReportGenerator:
         return {
             "wiperx_report": {
                 "schema_version": "1.1",
-                "generated_at": datetime.utcnow().isoformat() + "Z",
+                "generated_at": utc_iso(),
                 "operator": operator,
             },
             "operation": {
@@ -111,9 +117,9 @@ class ReportGenerator:
         """
         report_data = self.build_report_dict(wipe_result, verification_result, operator)
 
-        safe_ts = wipe_result.timestamp.replace(":", "-").replace(".", "-")
-        safe_disk = wipe_result.disk_identifier.replace("/", "_")
-        report_path = REPORTS_DIR / f"wipe_report_{safe_disk}_{safe_ts}.json"
+        from core.report_paths import report_path as _rp
+        report_path = _rp("wipe", wipe_result.disk_identifier,
+                          when=wipe_result.timestamp)
 
         with open(report_path, "w", encoding="utf-8") as f:
             json.dump(report_data, f, indent=2)
@@ -135,9 +141,9 @@ class ReportGenerator:
         """
         report_data = self.build_report_dict(wipe_result, verification_result, operator)
 
-        safe_ts = wipe_result.timestamp.replace(":", "-").replace(".", "-")
-        safe_disk = wipe_result.disk_identifier.replace("/", "_")
-        cert_path = REPORTS_DIR / f"wipe_cert_{safe_disk}_{safe_ts}.json"
+        from core.report_paths import report_path as _rp
+        cert_path = _rp("wipe", wipe_result.disk_identifier,
+                        when=wipe_result.timestamp)
 
         try:
             from core.report_signer import write_signed_json
@@ -188,7 +194,7 @@ class ReportGenerator:
         safe_ts = wipe_result.timestamp.replace(":", "-").replace(".", "-")
         safe_disk = wipe_result.disk_identifier.replace("/", "_")
         filename = f"wipe_certificate_{safe_disk}_{safe_ts}.pdf"
-        report_path = REPORTS_DIR / filename
+        report_path = _ensure_reports_dir() / filename
 
         doc = SimpleDocTemplate(
             str(report_path),
@@ -236,7 +242,7 @@ class ReportGenerator:
         elements.append(Paragraph("WiperX", header_style))
         elements.append(Paragraph("Certificate of Data Destruction", sub_style))
         elements.append(Paragraph(
-            f"Generated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}",
+            f"Generated: {utc_now().strftime('%Y-%m-%d %H:%M:%S UTC')}",
             sub_style
         ))
         elements.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor("#e74c3c")))

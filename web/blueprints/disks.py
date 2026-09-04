@@ -4,10 +4,27 @@
 from flask import Blueprint, render_template, request, jsonify, flash, redirect, url_for, session
 from flask_login import login_required, current_user
 from web.models import get_machine_store
-from core.execution_manager import ExecutionManager, ExecutionMode, RemoteConnectionConfig
+from core.execution_manager import (
+    ExecutionManager, ExecutionMode, RemoteConnectionConfig, _is_removable,
+)
 from core.audit_logger import log_event
 
 disks_bp = Blueprint("disks", __name__)
+
+
+def _annotate(disks):
+    """Tag each disk with UI-visible wipe eligibility."""
+    for d in disks:
+        removable = _is_removable(d)
+        apple_internal = getattr(d, "bus_type", "") == "Apple Fabric"
+        d.removable = removable
+        d.wipeable = (
+            not d.is_system
+            and not apple_internal
+            and (not d.is_mounted or removable)
+        )
+        d.needs_force_unmount = d.is_mounted and d.wipeable
+    return disks
 
 
 @disks_bp.route("/scan/local")
@@ -22,12 +39,15 @@ def scan_local():
     disks = []
 
     try:
-        disks = manager.scan_disks(mode=ExecutionMode.LOCAL)
+        disks = _annotate(manager.scan_disks(mode=ExecutionMode.LOCAL))
         log_event("disk_scan_local", {"user": current_user.username, "disk_count": len(disks)})
     except Exception as e:
         error = str(e)
 
-    return render_template("disks/scan_results.html", disks=disks, target="Local Machine", error=error)
+    return render_template(
+        "disks/scan_results.html",
+        disks=disks, target="Local Machine", machine_id="local", error=error,
+    )
 
 
 @disks_bp.route("/scan/remote/<machine_id>")
@@ -66,7 +86,7 @@ def scan_remote(machine_id):
                 winrm_port=machine.winrm_port,
             )
 
-        disks = manager.scan_disks(mode=exec_mode, remote_config=remote_config)
+        disks = _annotate(manager.scan_disks(mode=exec_mode, remote_config=remote_config))
         log_event("disk_scan_remote", {
             "user": current_user.username,
             "machine": machine.hostname,

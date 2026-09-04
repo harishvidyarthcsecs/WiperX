@@ -306,11 +306,12 @@ def _plan(header: _Header):
     return total, order
 
 
-def _run_decoder(data: bytes, header: _Header, plan) -> Tuple[bool, int, int]:
+def _run_decoder(data: bytes, header: _Header, plan) -> Tuple[bool, int, int, int]:
     """
-    Returns (clean, mcus_done, stop_offset).
+    Returns (clean, mcus_done, stop_offset, pad).
       clean = decoded exactly `total` MCUs and landed on EOI with little padding.
       stop_offset = byte offset where the decoder stopped / failed.
+      pad = fabricated bits the reader had to invent (0 for a complete decode).
     """
     total, order = plan
     reader = _BitReader(data, header.scan_start)
@@ -323,9 +324,11 @@ def _run_decoder(data: bytes, header: _Header, plan) -> Tuple[bool, int, int]:
                 for _ in range(nblk):
                     _decode_block(reader, dc_t, ac_t)
     except _DecodeError:
-        return False, m, reader.marker_at if reader.marker_at >= 0 else reader.pos
+        stop = reader.marker_at if reader.marker_at >= 0 else reader.pos
+        return False, m, stop, reader.pad
     clean = reader.marker() == 0xD9 and reader.pad <= 16
-    return clean, total, reader.marker_at if reader.marker_at >= 0 else reader.pos
+    stop = reader.marker_at if reader.marker_at >= 0 else reader.pos
+    return clean, total, stop, reader.pad
 
 
 # ---------------------------------------------------------------------------
@@ -376,18 +379,26 @@ def carve_bifragment_jpeg(
         )
 
     # 0. contiguous / already-intact
-    clean, _done, _stop = _run_decoder(region, header, plan)
+    clean, _done, _stop, _pad = _run_decoder(region, header, plan)
     if clean:
         eoi = region.find(b"\xff\xd9", scan_start) + 2
         return _finish(region, eoi, eoi, 1)
 
     # 1. estimate where the gap starts, then search block-aligned splices
-    _c, _d, approx = _run_decoder(region, header, plan)
+    _c, _d, approx, _p = _run_decoder(region, header, plan)
     approx = max(approx, scan_start + block_size)
 
     cut_lo = max(block_size, (approx // block_size - 3) * block_size)
     cut_hi = min(n, approx + 3 * block_size)
     candidates = 0
+
+    # More than one (cut, restart) splice can satisfy the decoder's `clean`
+    # predicate (all-zero gap bits Huffman-decode to legal empty blocks). Score
+    # every clean hit and keep the best instead of returning the first one:
+    #   1. fewest residual 0x00 bytes left at the splice seam (leftover gap)
+    #   2. fewest fabricated padding bits
+    #   3. smallest gap (earliest valid restart)
+    best = None  # (score, cut, restart, spliced)
 
     cut = (cut_lo // block_size) * block_size
     while cut <= cut_hi and candidates < _MAX_CANDIDATES:
@@ -398,11 +409,24 @@ def carve_bifragment_jpeg(
                 candidates += 1
                 spliced = region[:cut] + region[restart:]
                 if b"\xff\xd9" in spliced[scan_start:]:
-                    clean, _dn, _st = _run_decoder(spliced, header, plan)
+                    clean, _dn, _st, pad = _run_decoder(spliced, header, plan)
                     if clean:
-                        return _finish(spliced, cut, restart, candidates)
+                        seam = spliced[cut:]
+                        residual = len(seam) - len(seam.lstrip(b"\x00"))
+                        score = (residual, pad, restart - cut)
+                        # Do not return on the first clean decode: JPEG's
+                        # Huffman tables densely cover the code space, so a
+                        # wrong splice can occasionally also decode cleanly.
+                        # Score every clean candidate and let the post-loop
+                        # `best` pick win deterministically.
+                        if best is None or score < best[0]:
+                            best = (score, cut, restart, spliced)
                 restart += block_size
         cut += block_size
+
+    if best is not None:
+        _score, b_cut, b_restart, b_spliced = best
+        return _finish(b_spliced, b_cut, b_restart, candidates)
 
     logger.debug("[carver_fragment] no clean reassembly after %d candidates", candidates)
     return BifragmentResult(None, 0, 0, 0, 0, False, candidates)

@@ -8,9 +8,15 @@
         </h3>
         <p class="text-muted mb-0">Target: <strong>{{ target }}</strong></p>
     </div>
-    <a href="{{ url_for('dashboard.index') }}" class="btn btn-outline-secondary btn-sm">
-        <i class="bi bi-arrow-left"></i> Back
-    </a>
+    <div class="text-nowrap">
+        <a href="{{ url_for('disks.scan_remote', machine_id=machine_id) if machine_id and machine_id != 'local' else url_for('disks.scan_local') }}"
+           class="btn btn-outline-light btn-sm me-1">
+            <i class="bi bi-arrow-clockwise"></i> Scan for new devices
+        </a>
+        <a href="{{ url_for('dashboard.index') }}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left"></i> Back
+        </a>
+    </div>
 </div>
 
 {% if error %}
@@ -24,7 +30,7 @@
 <div class="card">
     <div class="card-header d-flex justify-content-between">
         <strong><i class="bi bi-hdd"></i> Discovered Disks ({{ disks|length }})</strong>
-        <span class="text-muted small">System/Mounted disks cannot be wiped</span>
+        <span class="text-muted small">System &amp; internal disks are protected. A mounted <em>removable</em> disk can be wiped with force-unmount.</span>
     </div>
     <div class="card-body p-0">
         <table class="table table-hover mb-0">
@@ -57,18 +63,23 @@
                         {% else %}
                             <span class="badge" style="background:#27ae60"><i class="bi bi-check-circle"></i> Available</span>
                         {% endif %}
+                        {% if disk.removable %}
+                            <span class="badge bg-secondary" title="external / hot-pluggable">removable</span>
+                        {% endif %}
                     </td>
                     <td>
-                        {% if not disk.is_system and not disk.is_mounted %}
+                        {% if disk.wipeable %}
                         <a href="{{ url_for('wipe.confirm',
                                disk_id=disk.identifier,
                                machine_id=machine_id or 'local',
                                target=target) }}"
-                           class="btn btn-danger btn-sm">
-                            <i class="bi bi-trash3"></i> Wipe
+                           class="btn btn-danger btn-sm"
+                           {% if disk.needs_force_unmount %}title="Mounted — the wipe will force-unmount it first"{% endif %}>
+                            <i class="bi bi-trash3"></i> Wipe{% if disk.needs_force_unmount %} <i class="bi bi-eject-fill"></i>{% endif %}
                         </a>
                         {% else %}
-                        <button class="btn btn-secondary btn-sm" disabled title="Protected disk">
+                        <button class="btn btn-secondary btn-sm" disabled
+                                title="{% if disk.is_system %}System disk — wipe from a boot/live environment{% elif disk.bus_type == 'Apple Fabric' %}Apple-silicon internal SSD — use Erase All Content and Settings{% else %}Protected disk{% endif %}">
                             <i class="bi bi-lock"></i> Protected
                         </button>
                         {% endif %}

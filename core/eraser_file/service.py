@@ -24,7 +24,6 @@ import os
 import platform
 import socket
 from dataclasses import asdict, is_dataclass
-from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -32,6 +31,7 @@ from core import report_signer
 from core.audit_logger import log_event
 from core.eraser_file import trace_scrubber, verify
 from core.eraser_file.batch import shred_paths
+from core.timeutils import utc_iso, utc_stamp
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +42,10 @@ REPORTS_DIR = Path(__file__).parent.parent.parent / "reports"
 COMPLIANCE_NOTE = (
     "Overwrite-based secure deletion of logical media, mapped to NIST SP 800-88 "
     "Rev.1 'Clear'. Does not guarantee destruction of copies held in filesystem "
-    "journals, snapshots, backups, or SSD over-provisioned areas."
+    "journals, snapshots, backups, or SSD over-provisioned areas. On macOS "
+    "volumes, filename traces in .Spotlight-V100, .fseventsd, .DS_Store and "
+    ".Trashes are volume-level metadata stores that a file/folder erase does "
+    "not reach; only a full-device wipe removes them."
 )
 
 
@@ -143,7 +146,7 @@ def build_erase_report(
     return {
         "wiperx_erase_report": {
             "schema_version": "1.0",
-            "generated_at": datetime.utcnow().isoformat() + "Z",
+            "generated_at": utc_iso(),
             "operator": operator,
             "host": socket.gethostname(),
             "os": platform.platform(),
@@ -238,10 +241,15 @@ def erase_paths(
         verification=verification,
     )
 
-    out_dir = Path(reports_dir) if reports_dir else REPORTS_DIR
-    out_dir.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-    cert_path = out_dir / f"erase_cert_{stamp}.json"
+    _n_files = getattr(summary, "total", 0) or 0
+    if reports_dir:
+        out_dir = Path(reports_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        stamp = utc_stamp()
+        cert_path = out_dir / f"erase_{_n_files}files_{stamp}.json"
+    else:
+        from core.report_paths import report_path
+        cert_path = report_path("erase", f"{_n_files}files")
     try:
         report_signer.write_signed_json(report, cert_path)
         signed = True
@@ -299,7 +307,7 @@ def wipe_free_space_only(
     report = {
         "wiperx_erase_report": {
             "schema_version": "1.0",
-            "generated_at": datetime.utcnow().isoformat() + "Z",
+            "generated_at": utc_iso(),
             "operator": operator,
             "host": socket.gethostname(),
             "os": platform.platform(),
@@ -314,10 +322,14 @@ def wipe_free_space_only(
         },
     }
 
-    out_dir = Path(reports_dir) if reports_dir else REPORTS_DIR
-    out_dir.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-    cert_path = out_dir / f"freespace_cert_{stamp}.json"
+    if reports_dir:
+        out_dir = Path(reports_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        stamp = utc_stamp()
+        cert_path = out_dir / f"freespace_{stamp}.json"
+    else:
+        from core.report_paths import report_path
+        cert_path = report_path("freespace", mount_point or "mount")
     try:
         report_signer.write_signed_json(report, cert_path)
         signed = True

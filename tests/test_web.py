@@ -13,6 +13,13 @@ def test_admin_can_load_core_pages(admin):
         assert resp.status_code == 200, (path, resp.status_code)
 
 
+def test_admin_reports_page_parses_real_certs(admin):
+    """Regression: the legacy signed wipe certs on disk must not show as
+    Unknown/FAILED — reports.index must unwrap the {payload,signature} envelope."""
+    body = admin.get("/reports/").get_data(as_text=True)
+    assert "Unknown</td>" not in body
+
+
 def test_admin_dashboard_shows_action_cards(admin):
     body = admin.get("/").get_data(as_text=True)
     assert "Erase Drive" in body

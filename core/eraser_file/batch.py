@@ -131,6 +131,17 @@ def shred_paths(
             if on_progress:
                 on_progress(sk)
 
+    # macOS writes an AppleDouble "._name" sidecar next to each file on
+    # FAT/exFAT volumes holding the resource fork + Finder metadata. Shred it
+    # alongside its parent so a "secure erase" does not leave it behind.
+    for f in list(to_shred):
+        base = os.path.basename(f)
+        if base.startswith("._"):
+            continue
+        sidecar = os.path.join(os.path.dirname(f), "._" + base)
+        if os.path.isfile(sidecar) and not os.path.islink(sidecar):
+            to_shred.append(sidecar)
+
     # de-duplicate while preserving determinism
     to_shred = sorted(set(to_shred))
 

@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.coverage.run]
+source = ["core", "cli", "web"]
+omit = ["tests/*", "*/__init__.py"]
+
+[tool.coverage.report]
+show_missing = true
+
+[tool.black]
+line-length = 88
+target-version = ["py310", "py311", "py312"]
+
+[tool.flake8]
+max-line-length = 100
+extend-ignore = ["E203", "W503"]
+exclude = [".venv", ".venv311", "venv", "build", "dist"]

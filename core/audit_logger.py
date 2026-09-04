@@ -20,10 +20,14 @@ import logging
 import os
 import socket
 import getpass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 LOGS_DIR = Path(__file__).parent.parent / "logs"
+
+
+def _utc_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
 LOGS_DIR.mkdir(exist_ok=True)
 
 
@@ -35,7 +39,7 @@ def get_audit_logger() -> logging.Logger:
     Returns:
         logging.Logger: Configured audit logger.
     """
-    today = datetime.utcnow().strftime("%Y-%m-%d")
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     log_file = LOGS_DIR / f"wiperx_audit_{today}.log"
 
     logger = logging.getLogger("wiperx.audit")
@@ -52,7 +56,7 @@ def get_audit_logger() -> logging.Logger:
     class JsonFormatter(logging.Formatter):
         def format(self, record):
             log_entry = {
-                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "timestamp": _utc_iso(),
                 "level": record.levelname,
                 "event": record.getMessage(),
                 "module": record.module,

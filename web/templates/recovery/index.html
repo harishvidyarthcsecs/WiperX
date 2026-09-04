@@ -35,27 +35,38 @@
 
                     <div class="mb-3">
                         <label class="form-label">Mode</label>
-                        <div class="form-check">
-                            <input class="form-check-input" type="radio" name="mode" id="mode-full" value="full" checked>
-                            <label class="form-check-label" for="mode-full">
-                                Full &mdash; filesystem undelete pass, then signature carving
+                        <div class="list-group">
+                            <label class="list-group-item d-flex gap-2" style="background:transparent; border-color:var(--wx-border)">
+                                <input class="form-check-input mt-1" type="radio" name="mode" value="full" checked>
+                                <span>
+                                    <strong>Full</strong> — filesystem undelete pass, then signature carving
+                                    <small class="d-block text-muted">Best coverage: recovers still-indexed deleted files first, then scans raw bytes for anything the filesystem no longer knows about.</small>
+                                </span>
                             </label>
-                        </div>
-                        <div class="form-check">
-                            <input class="form-check-input" type="radio" name="mode" id="mode-carve" value="carve-only">
-                            <label class="form-check-label" for="mode-carve">Carve only &mdash; skip the filesystem pass</label>
-                        </div>
-                        <div class="form-check">
-                            <input class="form-check-input" type="radio" name="mode" id="mode-fs" value="fs-only">
-                            <label class="form-check-label" for="mode-fs">Filesystem only &mdash; skip carving</label>
+                            <label class="list-group-item d-flex gap-2" style="background:transparent; border-color:var(--wx-border)">
+                                <input class="form-check-input mt-1" type="radio" name="mode" value="carve-only">
+                                <span>
+                                    <strong>Carve only</strong> — skip the filesystem pass
+                                    <small class="d-block text-muted">Signature scan only. Use on raw images or when the filesystem metadata is unreadable/wiped.</small>
+                                </span>
+                            </label>
+                            <label class="list-group-item d-flex gap-2" style="background:transparent; border-color:var(--wx-border)">
+                                <input class="form-check-input mt-1" type="radio" name="mode" value="fs-only">
+                                <span>
+                                    <strong>Filesystem only</strong> — skip carving
+                                    <small class="d-block text-muted">Fastest. Only recovers files the filesystem still has a record of.</small>
+                                </span>
+                            </label>
                         </div>
                     </div>
 
                     <div class="form-check mb-3">
                         <input class="form-check-input" type="checkbox" name="allow_mounted" id="allow-mounted">
                         <label class="form-check-label" for="allow-mounted">
-                            Allow a read-write mounted device (unsafe &mdash; concurrent writes can corrupt the recovery)
+                            Allow a read-write mounted device
                         </label>
+                        <small class="text-muted d-block">Unsafe — concurrent writes to a live, mounted
+                            filesystem can corrupt the recovery. Leave off unless you understand the risk.</small>
                     </div>
 
                     <div class="mb-3">
@@ -75,11 +86,14 @@
         <div class="card">
             <div class="card-header"><strong><i class="bi bi-info-circle"></i> Notes</strong></div>
             <div class="card-body small text-muted">
-                <p>Recovered files land in <code>cases/&lt;id&gt;/recovered/</code> alongside an
-                Ed25519-signed <code>case_report.json</code> with a per-file SHA-256 manifest and
-                a source chain-of-custody header.</p>
-                <p class="mb-0">Fragmented-file support is limited to contiguous files and
-                bifragment JPEG.</p>
+                <ul class="mb-0 ps-3">
+                    <li>Source opened <strong>read-only</strong> — nothing is written back to it.</li>
+                    <li>Recovered files land in <code>cases/&lt;id&gt;/recovered/</code>.</li>
+                    <li>An Ed25519-signed <code>case_report.json</code> carries a per-file
+                        SHA-256 manifest and a source chain-of-custody header.</li>
+                    <li>Fragmented-file support is limited to contiguous files and
+                        bifragment-gap JPEG.</li>
+                </ul>
             </div>
         </div>
     </div>

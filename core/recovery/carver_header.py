@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, List, Optional, Sequence, Tuple
 
+from core import entropy
 from core.recovery import carver_fragment, carver_structure
 from core.recovery.signatures import MAX_HEADER_LEN, Signature, iter_header_hits
 
@@ -59,6 +60,75 @@ def _in_ranges(offset: int, ranges: Sequence[Tuple[int, int]]) -> bool:
         if start <= offset < stop:
             return True
     return False
+
+
+def _valid_bmp_header(buf: bytes) -> bool:
+    """A 2-byte 'BM' magic is far too weak; sanity-check the BMP file header."""
+    if len(buf) < 14 or buf[:2] != b"BM":
+        return False
+    size = int.from_bytes(buf[2:6], "little")
+    reserved = int.from_bytes(buf[6:10], "little")
+    data_off = int.from_bytes(buf[10:14], "little")
+    return reserved == 0 and 54 <= data_off < size <= (2 << 30)
+
+
+def _valid_gzip_header(buf: bytes) -> bool:
+    """3-byte gzip magic collides with random noise every ~16 MB on a large
+    source. RFC 1952: the FLG byte's top 3 bits are reserved and must be 0
+    in any real encoder's output."""
+    if len(buf) < 4:
+        return False
+    flg = buf[3]
+    return (flg & 0xE0) == 0
+
+
+def _valid_mp3_header(buf: bytes) -> bool:
+    """3-byte 'ID3' magic is just as weak as gzip's. ID3v2: version byte is
+    2-4, flags' low nibble is reserved-zero, and the 4 size bytes are
+    synchsafe (high bit of each clear)."""
+    if len(buf) < 10 or buf[:3] != b"ID3":
+        return False
+    version = buf[3]
+    flags = buf[5]
+    if not (2 <= version <= 4) or (flags & 0x0F) != 0:
+        return False
+    return all((b & 0x80) == 0 for b in buf[6:10])
+
+
+# Extra header validation for signatures whose magic is too short to trust alone.
+_HEADER_GUARDS = {
+    "bmp": _valid_bmp_header,
+    "gzip": _valid_gzip_header,
+    "mp3": _valid_mp3_header,
+}
+
+# Chunks sampled from a footerless probe to tell "genuinely no footer /
+# fixed cap" from "magic collision sitting in wiped/filler space" before
+# paying for the full hash+write.
+_ENTROPY_SAMPLE_COUNT = 8
+_ENTROPY_SAMPLE_SIZE = 4096
+
+
+def _looks_like_filler(probe: bytes, header_len: int) -> bool:
+    """
+    True only when a footerless carve's body is homogeneous byte-fill
+    (zeroed / fixed-fill) across evenly spaced samples - never for
+    high-entropy content, since real compressed payloads (gzip/zip/mp3/7z)
+    are themselves near-uniform-random by design and must not be discarded.
+    """
+    body = probe[header_len:]
+    if len(body) <= _ENTROPY_SAMPLE_SIZE:
+        return entropy.looks_wiped(body).verdict in ("zeroed", "fixed-fill")
+
+    step = max(1, (len(body) - _ENTROPY_SAMPLE_SIZE) // _ENTROPY_SAMPLE_COUNT)
+    for i in range(_ENTROPY_SAMPLE_COUNT):
+        start = i * step
+        chunk = body[start:start + _ENTROPY_SAMPLE_SIZE]
+        if not chunk:
+            break
+        if entropy.looks_wiped(chunk).verdict not in ("zeroed", "fixed-fill"):
+            return False
+    return True
 
 
 def _determine_end(source, offset: int, sig: Signature) -> Tuple[int, str, bool, bytes]:
@@ -126,7 +196,19 @@ def carve(
             if _in_ranges(abs_off, claimed) or _in_ranges(abs_off, allocated):
                 continue
 
+            guard = _HEADER_GUARDS.get(sig.name)
+            if guard is not None and not guard(source.read(abs_off, 32)):
+                continue
+
             end, method, footer_found, probe = _determine_end(source, abs_off, sig)
+
+            if method == "max-size" and _looks_like_filler(probe, MAX_HEADER_LEN):
+                # Footerless carve whose body is homogeneous byte-fill, not
+                # real file content (a real gzip/7z/rar/tiff/bmp/sqlite body
+                # is never a uniform run of one byte). Skip the hash+write
+                # entirely; claim just enough to avoid re-hitting this header.
+                claimed.append((abs_off, abs_off + max(sig.min_bytes, MAX_HEADER_LEN)))
+                continue
 
             carved_bytes = None
             frag_note = ""
@@ -165,7 +247,13 @@ def carve(
             elif method == "max-size":
                 cf.notes.append("no footer / structural end found; carve is size-capped")
             carved.append(cf)
-            claimed.append((abs_off, end))
+            # A footerless, size-capped carve has no proven extent — claiming the
+            # whole probe span would suppress every real header inside it. Claim
+            # only enough to avoid re-hitting this same header.
+            if method == "max-size":
+                claimed.append((abs_off, abs_off + max(sig.min_bytes, MAX_HEADER_LEN)))
+            else:
+                claimed.append((abs_off, end))
             if on_progress:
                 on_progress(cf)
 

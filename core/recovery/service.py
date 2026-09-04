@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable, List, Optional
 
@@ -89,16 +90,24 @@ def recover(
 
     started = time.perf_counter()
     src = open_source(source_path, allow_mounted=allow_mounted)
+    hash_pool: Optional[ThreadPoolExecutor] = None
     try:
         case = Case(out_dir, src, operator=operator)
         _log(f"case {case.case_id} -> {case.dir}")
-        _log("hashing source ...")
-        src.sha256()
-        _log(f"source sha256 {src.sha256()}")
+
+        # hashlib/os.read release the GIL, so hash the whole source in the
+        # background while the fs-recovery/carve passes run on the main
+        # thread instead of serializing "hash everything" before "carve
+        # everything". Source.sha256() caches its result, so whichever
+        # caller needs it later (manifest_header() below) just blocks on
+        # this future finishing rather than re-hashing.
+        _log("hashing source in background while recovery runs ...")
+        hash_pool = ThreadPoolExecutor(max_workers=1)
+        hash_future = hash_pool.submit(src.sha256)
 
         log_event("recovery.start", {
             "operator": operator, "source": source_path, "case_id": case.case_id,
-            "source_sha256": src.sha256(), "carve_only": carve_only, "fs_only": fs_only,
+            "carve_only": carve_only, "fs_only": fs_only,
         })
 
         records: List[dict] = []
@@ -146,6 +155,7 @@ def recover(
             _enrich(rec)
             rec["recovered_path"] = str(Path(rec["recovered_path"]).relative_to(case.dir))
 
+        hash_future.result()  # join the background hash; propagates any read error
         header = case.manifest_header()
         elapsed = time.perf_counter() - started
         report = case_report.build_case_report(
@@ -174,4 +184,6 @@ def recover(
             "records": records,
         }
     finally:
+        if hash_pool is not None:
+            hash_pool.shutdown(wait=False)
         src.close()

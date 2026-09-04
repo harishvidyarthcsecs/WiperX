@@ -40,9 +40,10 @@ import json
 import logging
 import os
 import stat
-from datetime import datetime
 from pathlib import Path
 from typing import Optional
+
+from core.timeutils import utc_iso
 
 logger = logging.getLogger(__name__)
 
@@ -212,7 +213,7 @@ def sign_payload(payload: dict) -> dict:
             "value": signature.hex(),
             "public_key": pub_hex,
             "key_id": key_id(pub_hex),
-            "signed_at": datetime.utcnow().isoformat() + "Z",
+            "signed_at": utc_iso(),
         },
     }
 
@@ -260,7 +261,7 @@ def verify_payload(envelope: dict) -> dict:
     """
     _require_crypto()
     result = {"valid": False, "key_id": None, "signed_at": None,
-              "trusted": False, "reason": ""}
+              "trusted": False, "anchor_configured": False, "reason": ""}
 
     if not isinstance(envelope, dict) or "payload" not in envelope or "signature" not in envelope:
         result["reason"] = "Not a signed envelope (missing 'payload'/'signature')."
@@ -290,6 +291,7 @@ def verify_payload(envelope: dict) -> dict:
         return result
 
     trusted = _load_trusted_public_key()
+    result["anchor_configured"] = trusted is not None
     if trusted is not None:
         result["trusted"] = _public_key_hex(trusted) == pub_hex
         if not result["trusted"]:

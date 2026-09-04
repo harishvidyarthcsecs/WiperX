@@ -65,6 +65,19 @@
                                value="{{ current_user.display_name }}">
                     </div>
 
+                    <div class="form-check mb-4 p-3 rounded" style="background: rgba(243,156,18,0.08); border: 1px solid rgba(243,156,18,0.3)">
+                        <input class="form-check-input" type="checkbox" name="force_unmount" id="force-unmount">
+                        <label class="form-check-label" for="force-unmount">
+                            <strong>Force-unmount and wipe</strong> if this disk is mounted
+                        </label>
+                        <div class="form-text text-muted">
+                            Only applies to an <strong>external / removable</strong> disk (USB,
+                            Thunderbolt, disk image) that is <strong>not</strong> the system disk —
+                            any other disk is refused regardless of this box. Unmounts every mounted
+                            volume on it first; any unsaved data there is lost.
+                        </div>
+                    </div>
+
                     <div class="d-grid gap-2">
                         <button type="submit" class="btn btn-danger btn-lg">
                             <i class="bi bi-trash3-fill me-2"></i>INITIATE WIPE

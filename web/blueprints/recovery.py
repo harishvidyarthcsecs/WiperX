@@ -22,7 +22,7 @@ import os
 import queue
 import secrets
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from flask import (
@@ -141,7 +141,9 @@ def run_recovery():
     carve_only = mode == "carve-only"
     fs_only = mode == "fs-only"
 
-    name = "web-" + datetime.utcnow().strftime("%Y%m%dT%H%M%SZ") + "-" + secrets.token_hex(3)
+    from core.report_paths import slug
+    name = (f"recover_{slug(Path(source).name or source)}_"
+            f"{datetime.now(timezone.utc).strftime('%H%M%S')}Z-{secrets.token_hex(3)}")
     case_dir = CASES_DIR / name
 
     session_id = current_user.id

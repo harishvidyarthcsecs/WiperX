@@ -2,6 +2,7 @@
 
 import io
 import os
+import random
 
 import pytest
 
@@ -13,10 +14,18 @@ from PIL import Image  # noqa: E402
 BS = 512
 
 
-def _noisy_jpeg(side: int = 160, quality: int = 88) -> bytes:
+def _noisy_jpeg(side: int = 160, quality: int = 88, seed: int | None = None) -> bytes:
     """A JPEG with genuine entropy data (random noise, so it does not
-    compress to nothing)."""
-    img = Image.frombytes("RGB", (side, side), os.urandom(side * side * 3))
+    compress to nothing).
+
+    `seed` picks a deterministic byte generator (random.Random.randbytes)
+    instead of os.urandom, which the stdlib random module cannot seed - a
+    fixed seed makes a failing case reproducible instead of a 1-in-N flake.
+    Omit seed to keep the original unseeded-CSPRNG behavior.
+    """
+    pixels = (random.Random(seed).randbytes(side * side * 3)
+              if seed is not None else os.urandom(side * side * 3))
+    img = Image.frombytes("RGB", (side, side), pixels)
     buf = io.BytesIO()
     img.save(buf, "JPEG", quality=quality)
     return buf.getvalue()
@@ -29,9 +38,10 @@ def test_contiguous_recovered_byte_exact():
     assert res.recovered == jpg
 
 
-@pytest.mark.parametrize("gap_blocks", [1, 3, 8])
-def test_bifragment_recovered_byte_exact(gap_blocks):
-    jpg = _noisy_jpeg()
+@pytest.mark.parametrize("gap_blocks", [1, 2, 3, 4, 5, 8])
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_bifragment_recovered_byte_exact(gap_blocks, seed):
+    jpg = _noisy_jpeg(seed=seed)
     cut = ((len(jpg) // 2) // BS) * BS
     region = jpg[:cut] + b"\x00" * (BS * gap_blocks) + jpg[cut:] + b"\xab" * 3000
 

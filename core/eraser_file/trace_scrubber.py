@@ -101,6 +101,9 @@ def wipe_free_space(
     chunk = b""
     reserve_bytes = reserve_mib * 1024 * 1024
     buf_bytes = max(1, chunk_mib) * 1024 * 1024
+    # Cap each fill file well under the FAT32 (4 GiB) / common single-file limits
+    # and roll over to a fresh file when one is full or the FS rejects it.
+    per_file_bytes = 1024 * 1024 * 1024
     total_written = 0
     pass_plan = ["random"] * max(1, passes) + (["zero"] if zero_final else [])
 
@@ -113,29 +116,45 @@ def wipe_free_space(
     try:
         for idx, mode in enumerate(pass_plan, start=1):
             chunk = b"\x00" * buf_bytes if mode == "zero" else os.urandom(buf_bytes)
-            fd, tmp_path = tempfile.mkstemp(prefix=".wiperx_fill_", dir=target_dir)
+            tmp_paths = []
             pass_written = 0
             try:
-                with os.fdopen(fd, "wb", buffering=0) as handle:
-                    while shutil.disk_usage(target_dir).free > reserve_bytes:
-                        try:
-                            handle.write(chunk)
-                        except OSError as exc:  # ENOSPC despite the reserve check
-                            if exc.errno == 28:
-                                break
-                            raise
-                        pass_written += len(chunk)
-                    handle.flush()
-                    os.fsync(handle.fileno())
+                while shutil.disk_usage(target_dir).free > reserve_bytes:
+                    fd, tmp_path = tempfile.mkstemp(prefix=".wiperx_fill_", dir=target_dir)
+                    tmp_paths.append(tmp_path)
+                    file_written = 0
+                    rolled = False
+                    with os.fdopen(fd, "wb", buffering=0) as handle:
+                        while (shutil.disk_usage(target_dir).free > reserve_bytes
+                               and file_written < per_file_bytes):
+                            try:
+                                handle.write(chunk)
+                            except OSError as exc:
+                                if exc.errno == 28:      # ENOSPC
+                                    break
+                                if exc.errno == 27:      # EFBIG — FS single-file limit
+                                    rolled = True
+                                    break
+                                raise
+                            file_written += len(chunk)
+                            pass_written += len(chunk)
+                        handle.flush()
+                        os.fsync(handle.fileno())
+                    # Nothing more went in and we did not hit the file-size cap
+                    # => filesystem is as full as the reserve allows.
+                    if file_written == 0 and not rolled:
+                        break
             finally:
-                try:
-                    os.unlink(tmp_path)
-                except OSError:
-                    pass
+                for p in tmp_paths:
+                    try:
+                        os.unlink(p)
+                    except OSError:
+                        pass
             total_written += pass_written
             if mode != "zero":
                 result["passes"] = idx
-            _log(f"Pass {idx} ({mode}): wrote {pass_written / 1e6:.1f} MB", log_callback)
+            _log(f"Pass {idx} ({mode}): wrote {pass_written / 1e6:.1f} MB "
+                 f"across {len(tmp_paths)} file(s)", log_callback)
 
         result["bytes_written"] = total_written
         result["ok"] = True
@@ -197,20 +216,23 @@ def fstrim(mount_point: str, log_callback: LogCB = None) -> dict:
 # ---------------------------------------------------------------------------
 
 def containing_device(path: str) -> Optional[str]:
-    """Return the block device backing `path` (e.g. /dev/sda1), or None."""
-    if not is_linux() or shutil.which("df") is None:
+    """Return the block device backing `path` (e.g. /dev/sda1, /dev/disk2s1), or None."""
+    if shutil.which("df") is None:
         return None
+    # GNU coreutils has `--output=source`; BSD/macOS `df` does not, so fall
+    # back to POSIX `df -P` and take column 1 of the data row.
+    argv = ["df", "--output=source", str(path)] if is_linux() else ["df", "-P", str(path)]
     try:
         proc = subprocess.run(
-            ["df", "--output=source", str(path)],
-            capture_output=True, text=True, timeout=15, check=False,
+            argv, capture_output=True, text=True, timeout=15, check=False,
         )
     except (subprocess.SubprocessError, OSError):
         return None
     lines = [ln.strip() for ln in proc.stdout.splitlines() if ln.strip()]
-    if len(lines) >= 2 and lines[1].startswith("/dev/"):
-        return lines[1]
-    return None
+    if len(lines) < 2:
+        return None
+    source = lines[1] if is_linux() else lines[1].split()[0]
+    return source if source.startswith("/dev/") else None
 
 
 def file_block_map(path: str) -> Optional[list]:

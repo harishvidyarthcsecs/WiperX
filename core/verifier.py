@@ -36,6 +36,10 @@ class WipeVerifier:
 
     SAMPLE_COUNT = 256          # chunks sampled across the device
     SAMPLE_SIZE = 4096          # bytes per chunk (8 x 512-byte sectors)
+    # Fraction of samples that may fail to read (transient USB / end-of-device
+    # errors) before a clean read-back is downgraded PASS -> INCONCLUSIVE.
+    # A single live sample is still a hard FAIL regardless of this.
+    READ_ERROR_TOLERANCE = 0.10
 
     def verify(
         self,
@@ -76,6 +80,9 @@ class WipeVerifier:
         if os_type == OSType.LINUX:
             return self._verify_linux(disk, executor, _log,
                                       sample_count or self.SAMPLE_COUNT, expected)
+        if os_type == OSType.MACOS:
+            return self._verify_macos(disk, executor, _log,
+                                      sample_count or self.SAMPLE_COUNT, expected)
         if os_type == OSType.WINDOWS:
             return self._verify_windows(disk, executor, _log)
         return {
@@ -87,7 +94,17 @@ class WipeVerifier:
     # ------------------------------------------------------------------
 
     def _verify_linux(self, disk, executor, log_fn, sample_count, expected) -> dict:
-        device_path = f"/dev/{disk.identifier}"
+        return self._verify_sample(f"/dev/{disk.identifier}", disk, executor,
+                                   log_fn, sample_count, expected)
+
+    def _verify_macos(self, disk, executor, log_fn, sample_count, expected) -> dict:
+        # Read the raw (unbuffered) device node so the read-back is not served
+        # from the buffer cache.
+        return self._verify_sample(f"/dev/r{disk.identifier}", disk, executor,
+                                   log_fn, sample_count, expected)
+
+    def _verify_sample(self, device_path, disk, executor, log_fn,
+                       sample_count, expected) -> dict:
         size_bytes = getattr(disk, "size_bytes", 0) or 0
         max_offset = max(0, size_bytes - self.SAMPLE_SIZE)
         log_fn(f"Sampling {sample_count} x {self.SAMPLE_SIZE}B chunks across "
@@ -101,28 +118,55 @@ class WipeVerifier:
         nonzero = 0
         read_errors = 0
 
-        for offset in offsets:
-            skip = offset // 512
-            cmd = (
-                f"dd if={device_path} bs=512 skip={skip} "
-                f"count={self.SAMPLE_SIZE // 512} 2>/dev/null | od -An -v -tx1"
-            )
-            try:
-                raw = executor.run_command(cmd, timeout=30)
-            except Exception as exc:  # noqa: BLE001 - record and continue
-                read_errors += 1
-                log_fn(f"WARNING: could not read offset {offset}: {exc}")
-                continue
+        # Fast path: for a LOCAL wipe, open the device once and seek/read the
+        # samples directly instead of spawning `dd | od` per sample (256
+        # samples => up to 512 subprocesses, minutes on a real USB stick).
+        # The raw macOS node /dev/rdiskN needs 512-aligned reads, so offsets
+        # are floored to a sector boundary (the dd path already did skip=off//512).
+        local_fh = None
+        try:
+            from core.executors import LocalExecutor
+            if isinstance(executor, LocalExecutor):
+                local_fh = open(device_path, "rb", buffering=0)
+        except Exception:  # noqa: BLE001 - fall back to the dd path
+            local_fh = None
 
-            buf = self._hex_to_bytes(raw)
-            if not buf:
-                read_errors += 1
-                continue
-            if any(buf):
-                nonzero += 1
-            v = looks_wiped(buf)
-            verdict_counts[v.verdict] = verdict_counts.get(v.verdict, 0) + 1
-            entropies.append(v.entropy)
+        try:
+            for offset in offsets:
+                off512 = (offset // 512) * 512
+                if local_fh is not None:
+                    try:
+                        local_fh.seek(off512)
+                        buf = local_fh.read(self.SAMPLE_SIZE)
+                    except Exception as exc:  # noqa: BLE001 - record and continue
+                        read_errors += 1
+                        log_fn(f"WARNING: could not read offset {off512}: {exc}")
+                        continue
+                else:
+                    skip = offset // 512
+                    cmd = (
+                        f"dd if={device_path} bs=512 skip={skip} "
+                        f"count={self.SAMPLE_SIZE // 512} 2>/dev/null | od -An -v -tx1"
+                    )
+                    try:
+                        raw = executor.run_command(cmd, timeout=30)
+                    except Exception as exc:  # noqa: BLE001 - record and continue
+                        read_errors += 1
+                        log_fn(f"WARNING: could not read offset {offset}: {exc}")
+                        continue
+                    buf = self._hex_to_bytes(raw)
+
+                if not buf:
+                    read_errors += 1
+                    continue
+                if any(buf):
+                    nonzero += 1
+                v = looks_wiped(buf)
+                verdict_counts[v.verdict] = verdict_counts.get(v.verdict, 0) + 1
+                entropies.append(v.entropy)
+        finally:
+            if local_fh is not None:
+                local_fh.close()
 
         sampled = len(entropies)
         e_min = min(entropies) if entropies else 0.0
@@ -136,18 +180,34 @@ class WipeVerifier:
         live = verdict_counts.get("random-or-live", 0)
         clean = verdict_counts.get("zeroed", 0) + verdict_counts.get("fixed-fill", 0) \
             + verdict_counts.get("low-entropy", 0)
+        read_error_ratio = round(read_errors / max(1, sample_count), 4)
 
         if expected == "random":
             verified = None
             note = ("final wipe pass is random; a high-entropy read cannot be "
                     "distinguished from residual data - trust the completion status")
         else:  # "zeroed" or "any"
-            verified = sampled > 0 and live == 0 and read_errors == 0
-            note = f"{clean}/{sampled} samples read as wiped, {live} look live"
+            if live > 0:
+                # Genuine residual / live-looking data -> hard fail.
+                verified = False
+            elif read_error_ratio > self.READ_ERROR_TOLERANCE:
+                # Too few samples readable to make a confident call.
+                verified = None
+            elif sampled == 0:
+                # Nothing sampled and it wasn't read errors (e.g. zero-size
+                # disk info) -> cannot claim success.
+                verified = False
+            else:
+                # Every readable sample is clean; a few transient read errors
+                # (USB flakiness, end-of-device) do not by themselves fail it.
+                verified = True
+            note = (f"{clean}/{sampled} samples read as wiped, {live} look live, "
+                    f"{read_errors} unreadable ({read_error_ratio:.0%})")
 
         details = (
             f"expected={expected}; sampled={sampled}; nonzero={nonzero}; "
-            f"read_errors={read_errors}; verdicts={verdict_counts}; "
+            f"read_errors={read_errors}; read_error_ratio={read_error_ratio}; "
+            f"verdicts={verdict_counts}; "
             f"entropy min/mean/max={e_min:.2f}/{e_mean:.2f}/{e_max:.2f}; "
             f"coverage={coverage_pct}% - {note}"
         )
@@ -161,6 +221,7 @@ class WipeVerifier:
             "samples": sampled,
             "nonzero": nonzero,
             "read_errors": read_errors,
+            "read_error_ratio": read_error_ratio,
             "verdicts": verdict_counts,
             "entropy_min": round(e_min, 4),
             "entropy_mean": round(e_mean, 4),

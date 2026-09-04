@@ -16,10 +16,16 @@ Role-Based Access Control (RBAC) Design:
   - VIEWER   : Read-only — view scan results and reports; cannot initiate wipes.
 """
 
+import logging
+import os
+import secrets
+
 import bcrypt
 from flask_login import UserMixin
 from dataclasses import dataclass
 from typing import Dict, Optional
+
+logger = logging.getLogger(__name__)
 
 
 class UserRole:
@@ -106,27 +112,44 @@ def _make_hash(password: str) -> str:
     return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 
-# Default users (for demonstration only)
-# In production: load from secure database, never hardcode passwords
+def _seed_password(env_var: str, username: str) -> str:
+    """
+    Seed password for a built-in demo user: from `env_var` if set, otherwise a
+    fresh random string logged once. Never a hardcoded literal.
+    """
+    pw = os.environ.get(env_var)
+    if pw:
+        return pw
+    pw = secrets.token_urlsafe(12)
+    logger.warning(
+        "%s not set - generated a random password for '%s': %s "
+        "(in-memory demo store; set %s / use a real user database for anything real).",
+        env_var, username, pw, env_var,
+    )
+    return pw
+
+
+# Built-in demo users. The in-memory store resets every process; passwords come
+# from the environment (see .env.example) and are random if unset.
 _USER_STORE: Dict[str, User] = {
     "1": User(
         user_id="1",
         username="admin",
-        password_hash=_make_hash("admin123"),   # CHANGE IN PRODUCTION
+        password_hash=_make_hash(_seed_password("WIPERX_ADMIN_PASSWORD", "admin")),
         role=UserRole.ADMIN,
         display_name="System Administrator",
     ),
     "2": User(
         user_id="2",
         username="operator",
-        password_hash=_make_hash("operator123"),
+        password_hash=_make_hash(_seed_password("WIPERX_OPERATOR_PASSWORD", "operator")),
         role=UserRole.OPERATOR,
         display_name="Wipe Operator",
     ),
     "3": User(
         user_id="3",
         username="viewer",
-        password_hash=_make_hash("viewer123"),
+        password_hash=_make_hash(_seed_password("WIPERX_VIEWER_PASSWORD", "viewer")),
         role=UserRole.VIEWER,
         display_name="Report Viewer",
     ),

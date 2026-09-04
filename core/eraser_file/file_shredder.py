@@ -49,18 +49,25 @@ class ShredResult:
     duration_s: float = 0.0
 
 
-def _overwrite(handle, length: int, chunk: bytes) -> None:
-    """Write `length` bytes to an open file using repeats of `chunk`."""
+def _overwrite(handle, length: int, source, step: int) -> None:
+    """
+    Write `length` bytes to an open file in `step`-sized writes.
+
+    `source` is either raw `bytes` (repeated to fill, used for the zero pass)
+    or a callable ``f(n) -> bytes`` returning exactly `n` fresh bytes per call
+    (used for random passes, so a file larger than one buffer is not filled
+    with a single repeating block).
+    """
     handle.seek(0)
     remaining = length
-    step = len(chunk)
+    is_callable = callable(source)
     while remaining > 0:
-        if remaining < step:
-            handle.write(chunk[:remaining])
-            remaining = 0
+        n = step if remaining >= step else remaining
+        if is_callable:
+            handle.write(source(n))
         else:
-            handle.write(chunk)
-            remaining -= step
+            handle.write(source if n >= len(source) else source[:n])
+        remaining -= n
     handle.flush()
     os.fsync(handle.fileno())
 
@@ -124,10 +131,11 @@ def shred_file(
         buf_len = min(chunk_size, max(size, 1))
         with open(path, "r+b", buffering=0) as handle:
             for _ in range(passes):
-                _overwrite(handle, size, os.urandom(buf_len))
+                # Fresh randomness per chunk, not one repeated buffer.
+                _overwrite(handle, size, os.urandom, buf_len)
                 result.passes += 1
             if zero_final:
-                _overwrite(handle, size, b"\x00" * buf_len)
+                _overwrite(handle, size, b"\x00" * buf_len, buf_len)
             os.ftruncate(handle.fileno(), 0)
             handle.flush()
             os.fsync(handle.fileno())

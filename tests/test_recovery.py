@@ -142,6 +142,77 @@ def test_manifest_hash_is_deterministic(tmp_path):
     assert a["manifest_sha256"] == b["manifest_sha256"]
 
 
+def test_random_filler_yields_no_false_positives(tmp_path):
+    """Random data around real JPEGs must carve to exactly those JPEGs — the
+    old 2-byte 'BM'/MPEG-sync signatures produced dozens of bogus carves and a
+    footerless 'mp3' that swallowed the whole image."""
+    jpegs = [_jpeg_bytes((i * 40, 90, 200 - i * 30)) for i in range(3)]
+    blob = os.urandom(300_000)
+    for j in jpegs:
+        blob += j + os.urandom(120_000)
+    img = tmp_path / "noise.img"
+    img.write_bytes(blob)
+
+    res = service.recover(str(img), str(tmp_path / "noisecase"),
+                          operator="pytest", carve_only=True)
+
+    recovered = {r["sha256"] for r in res["records"]}
+    expected = {hashlib.sha256(j).hexdigest() for j in jpegs}
+    assert recovered == expected, res["records"]
+
+
+def test_junk_filters_skip_filler_and_bad_guard_magic(tmp_path):
+    """Coincidental gzip/mp3 magic bytes should never survive to a full
+    carve: a bad ID3/gzip guard field rejects it before the 48 MB probe is
+    even read, and a homogeneous zero-filled body (entropy filter) rejects
+    it even when the guard field happens to look valid.
+
+    Each case gets its own small image with nothing after the magic bytes:
+    a footerless probe reads to the end of the source, so real content
+    placed downstream in the same image would leak non-filler samples into
+    the entropy check and mask the very thing being tested (which real
+    unallocated/wiped disk regions don't do - see
+    test_random_filler_yields_no_false_positives for a real-file-amid-noise
+    check of the surrounding scan logic)."""
+    cases = {
+        "gzip_bad_guard": b"\x1f\x8b\x08" + bytes([0xE0]) + b"\x00" * 4000,
+        "gzip_filler_body": b"\x1f\x8b\x08" + bytes([0x00]) + b"\x00" * 4000,
+        "mp3_bad_guard": b"ID3" + bytes([3, 0, 0x01, 0, 0, 0, 0]) + b"\x00" * 4000,
+        "mp3_filler_body": b"ID3" + bytes([3, 0, 0x00, 0, 0, 0, 0]) + b"\x00" * 4000,
+    }
+    for name, magic_and_body in cases.items():
+        blob = b"\x00" * 4096 + magic_and_body
+        img = tmp_path / f"{name}.img"
+        img.write_bytes(blob)
+
+        res = service.recover(str(img), str(tmp_path / f"{name}case"),
+                              operator="pytest", carve_only=True)
+
+        sig_names = {r["signature"] for r in res["records"]}
+        assert "gzip" not in sig_names and "mp3" not in sig_names, (name, res["records"])
+
+
+def test_genuine_footerless_file_still_carved(tmp_path):
+    """A signature with no footer/structural refiner (sqlite) and
+    non-filler body content must still be carved to its size cap - the
+    junk filters must never discard real footerless recoveries."""
+    body = os.urandom(4000)  # non-filler content: must pass the entropy check
+    sqlite_bytes = b"SQLite format 3\x00" + body
+    blob = bytearray(b"\x00" * 4096)
+    blob += sqlite_bytes
+    blob += b"\x00" * 4096
+
+    img = tmp_path / "sqlite.img"
+    img.write_bytes(bytes(blob))
+
+    res = service.recover(str(img), str(tmp_path / "sqlitecase"),
+                          operator="pytest", carve_only=True)
+
+    rec = next((r for r in res["records"] if r["signature"] == "sqlite"), None)
+    assert rec is not None, res["records"]
+    assert rec["carve_method"] == "max-size"
+
+
 def test_png_validates_intact(tmp_path):
     img, _placed, assets = _build_image(tmp_path)
     res = service.recover(str(img), str(tmp_path / "c"), operator="x", carve_only=True)

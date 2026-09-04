@@ -13,6 +13,7 @@ Safety:
 """
 
 import os
+import platform
 from pathlib import Path
 
 from flask import (
@@ -53,7 +54,11 @@ def index():
     if not current_user.can("wipe"):
         flash("Access denied: erase permission required.", "danger")
         return redirect(url_for("dashboard.index"))
-    return render_template("eraser/index.html", allowed_root=_allowed_root())
+    return render_template(
+        "eraser/index.html",
+        allowed_root=_allowed_root(),
+        is_linux=(platform.system() == "Linux"),
+    )
 
 
 @eraser_bp.route("/run", methods=["POST"])

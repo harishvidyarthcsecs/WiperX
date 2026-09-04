@@ -2,9 +2,12 @@
 {% block title %}Report: {{ filename }}{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
-    <h3 style="color:#e74c3c; font-weight:700; letter-spacing:2px">
-        <i class="bi bi-file-earmark-text"></i> WIPE REPORT
-    </h3>
+    <div>
+        <h3 class="mb-1" style="color:#e74c3c; font-weight:700; letter-spacing:2px">
+            <i class="bi bi-file-earmark-text"></i> {{ kind|upper }} REPORT
+        </h3>
+        <p class="text-muted mb-0 small"><code>{{ filename }}</code></p>
+    </div>
     <div>
         <a href="{{ url_for('reports.download', filename=filename) }}" class="btn btn-outline-primary btn-sm me-2">
             <i class="bi bi-download"></i> Download JSON
@@ -15,74 +18,103 @@
     </div>
 </div>
 
-{% set op = report.get('operation', {}) %}
-{% set target = report.get('target', {}) %}
-{% set wipe = report.get('wipe', {}) %}
-{% set verify = report.get('verification', {}) %}
+{% macro row(k, v) %}
+<dt class="col-5 text-muted">{{ k }}</dt><dd class="col-7">{{ v if v not in (none, '') else '—' }}</dd>
+{% endmacro %}
 
-<div class="row g-3">
+<div class="row g-3 mb-3">
     <div class="col-md-6">
         <div class="card h-100">
-            <div class="card-header"><strong>Operation</strong></div>
+            <div class="card-header"><strong>Summary</strong></div>
             <div class="card-body">
                 <dl class="row mb-0">
-                    <dt class="col-5 text-muted">Status</dt>
-                    <dd class="col-7">
-                        {% if op.success %}
-                        <span class="badge bg-success">SUCCESS</span>
-                        {% else %}
-                        <span class="badge bg-danger">FAILED</span>
-                        {% endif %}
-                    </dd>
-                    <dt class="col-5 text-muted">Timestamp</dt>
-                    <dd class="col-7">{{ op.timestamp }}</dd>
-                    <dt class="col-5 text-muted">Strategy</dt>
-                    <dd class="col-7">{{ wipe.strategy_used }}</dd>
+                {% if kind == 'wipe' %}
+                    {% set op = report.get('operation', {}) %}
+                    {% set tgt = report.get('target', {}) %}
+                    {% set wp = report.get('wipe', {}) %}
+                    {{ row('Status', 'SUCCESS' if op.success else 'FAILED') }}
+                    {{ row('Timestamp', op.timestamp) }}
+                    {{ row('Host', tgt.hostname) }}
+                    {{ row('Disk', tgt.disk_identifier) }}
+                    {{ row('Model', tgt.disk_model) }}
+                    {{ row('Serial', tgt.disk_serial) }}
+                    {{ row('Strategy', wp.strategy_used) }}
+                    {{ row('Method', wp.method) }}
+                    {{ row('Passes', wp.pass_count) }}
+                {% elif kind == 'erase' %}
+                    {% set meta = report.get('wiperx_erase_report', {}) %}
+                    {% set s = report.get('summary', {}) %}
+                    {{ row('Generated', meta.generated_at) }}
+                    {{ row('Host', meta.host) }}
+                    {{ row('Operator', meta.operator) }}
+                    {{ row('Total paths', s.total) }}
+                    {{ row('Succeeded', s.succeeded) }}
+                    {{ row('Failed', s.failed) }}
+                    {{ row('Bytes erased', s.bytes_erased) }}
+                {% elif kind == 'freespace' %}
+                    {% set meta = report.get('wiperx_erase_report', {}) %}
+                    {% set fs = report.get('free_space_wipe', {}) %}
+                    {{ row('Generated', meta.generated_at) }}
+                    {{ row('Host', meta.host) }}
+                    {{ row('Mount', fs.mount or fs.mount_point) }}
+                    {{ row('OK', fs.ok) }}
+                    {{ row('Bytes written', fs.bytes_written) }}
+                {% elif kind == 'recover' %}
+                    {% set hdr = report.get('manifest', report.get('case', {})) %}
+                    {% set summ = report.get('summary', {}) %}
+                    {{ row('Case', hdr.case_id) }}
+                    {{ row('Started', hdr.started_at) }}
+                    {{ row('Operator', hdr.operator) }}
+                    {{ row('Source', (hdr.source or {}).path) }}
+                    {{ row('Files recovered', summ.total) }}
+                {% else %}
+                    <p class="text-muted mb-0">See raw payload below.</p>
+                {% endif %}
                 </dl>
             </div>
         </div>
     </div>
     <div class="col-md-6">
         <div class="card h-100">
-            <div class="card-header"><strong>Target Disk</strong></div>
+            <div class="card-header"><strong>Signature</strong></div>
             <div class="card-body">
-                <dl class="row mb-0">
-                    <dt class="col-5 text-muted">Hostname</dt>
-                    <dd class="col-7">{{ target.hostname }}</dd>
-                    <dt class="col-5 text-muted">OS</dt>
-                    <dd class="col-7">{{ target.os_detected }}</dd>
-                    <dt class="col-5 text-muted">Disk</dt>
-                    <dd class="col-7"><code>{{ target.disk_identifier }}</code></dd>
-                    <dt class="col-5 text-muted">Model</dt>
-                    <dd class="col-7">{{ target.disk_model }}</dd>
-                    <dt class="col-5 text-muted">Serial</dt>
-                    <dd class="col-7"><code>{{ target.disk_serial }}</code></dd>
-                </dl>
-            </div>
-        </div>
-    </div>
-    <div class="col-12">
-        <div class="card">
-            <div class="card-header"><strong>Verification</strong></div>
-            <div class="card-body">
-                <span class="badge {% if verify.verified %}bg-success{% elif verify.verified == false %}bg-danger{% else %}bg-secondary{% endif %} mb-2">
-                    {{ 'VERIFIED' if verify.verified else ('NOT VERIFIED' if verify.verified == false else 'N/A') }}
+                {% if signature.valid and signature.trusted %}
+                <span class="badge bg-success mb-2">SIGNED &amp; TRUSTED</span>
+                {% elif signature.valid %}
+                <span class="badge mb-2" style="background:#f39c12">SIGNED — UNTRUSTED KEY</span>
+                {% else %}
+                <span class="badge bg-secondary mb-2">UNSIGNED</span>
+                {% endif %}
+                <p class="small text-muted mb-0">{{ signature.details or signature.reason or '' }}</p>
+                {% if kind == 'wipe' and report.get('verification') %}
+                <hr style="border-color:var(--wx-border)">
+                {% set v = report.verification %}
+                <span class="badge {% if v.verified %}bg-success{% elif v.verified == false %}bg-danger{% else %}bg-secondary{% endif %} mb-2">
+                    {{ 'VERIFIED' if v.verified else ('NOT VERIFIED' if v.verified == false else 'N/A') }}
                 </span>
-                <p class="small text-muted mb-0">{{ verify.details }}</p>
+                <p class="small text-muted mb-0">{{ v.details }}</p>
+                {% endif %}
             </div>
         </div>
     </div>
-    <div class="col-12">
-        <div class="card">
-            <div class="card-header"><strong>Operation Log</strong></div>
-            <div class="log-panel">
-                {% for line in wipe.log_lines %}
-                <p class="log-line {% if 'ERROR' in line %}log-error{% elif 'WARNING' in line %}log-warning{% elif 'PASSED' in line or 'complete' in line %}log-success{% else %}log-info{% endif %}">
-                    {{ line }}
-                </p>
-                {% endfor %}
-            </div>
-        </div>
+</div>
+
+{% set logs = report.get('wipe', {}).get('log_lines') or report.get('log_lines') %}
+{% if logs %}
+<div class="card mb-3">
+    <div class="card-header"><strong>Operation Log</strong></div>
+    <div class="log-panel">
+        {% for line in logs %}
+        <p class="log-line {% if 'ERROR' in line %}log-error{% elif 'WARNING' in line %}log-warning{% elif 'PASSED' in line or 'complete' in line %}log-success{% else %}log-info{% endif %}">{{ line }}</p>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<div class="card">
+    <div class="card-header"><strong>Raw payload</strong></div>
+    <div class="card-body p-0">
+        <pre class="mb-0 p-3" style="max-height:480px; overflow:auto; font-size:0.8rem">{{ raw | tojson(indent=2) }}</pre>
     </div>
 </div>
 {% endblock %}

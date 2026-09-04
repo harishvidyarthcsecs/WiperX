@@ -29,6 +29,15 @@ from tabulate import tabulate
 # Add project root to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+# Load a local .env if python-dotenv is available (populates WIPERX_* vars
+# before anything reads os.environ). Silent no-op if not installed / no file.
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except Exception:  # noqa: BLE001
+    pass
+
 from core.execution_manager import (
     ExecutionManager,
     ExecutionMode,
@@ -117,15 +126,24 @@ def scan(mode, host, ssh_user, ssh_key, ssh_port, use_winrm, winrm_user, winrm_p
                    "others run an explicit overwrite pass sequence "
                    "(see 'wiperx info').")
 @click.option("--report-pdf", is_flag=True, help="Generate PDF certificate after wipe.")
+@click.option("--force-unmount", is_flag=True,
+              help="Force-unmount a mounted EXTERNAL/removable disk (USB, "
+                   "Thunderbolt, disk image) before wiping. System and internal "
+                   "disks are still refused.")
 @click.option("--operator", default=None, help="Operator name for report.")
 def wipe(disk_identifier, mode, host, ssh_user, ssh_key, ssh_port,
-         use_winrm, winrm_user, winrm_port, method, report_pdf, operator):
+         use_winrm, winrm_user, winrm_port, method, report_pdf, force_unmount, operator):
     """
-    Wipe a disk. DISK_IDENTIFIER is the disk name (e.g., sdb, nvme0n1, 1).
+    Wipe a disk or a single partition.
+
+    DISK_IDENTIFIER is a whole disk (sdb, nvme0n1, disk8, Windows disk number 1)
+    or, on macOS, a single partition / slice such as disk8s1 — only that slice
+    is overwritten, the rest of the disk is left intact.
 
     \b
     Examples:
         wiperx wipe sdb
+        wiperx wipe disk8s1            # macOS: just that partition
         wiperx wipe sdb --remote --host 192.168.1.10 --ssh-user admin
         wiperx wipe 1 --remote --host 192.168.1.20 --winrm --winrm-user Administrator
     """
@@ -193,10 +211,23 @@ def wipe(disk_identifier, mode, host, ssh_user, ssh_key, ssh_port,
         remote_config=remote_config,
         method=method,
         log_callback=live_log,
+        force_unmount=force_unmount,
     )
 
     try:
         result = manager.execute_wipe(request)
+
+        # Always surface the post-wipe read-back verdict.
+        v = result.verification or {}
+        if v:
+            verdict = v.get("verified")
+            vlabel = ("PASSED" if verdict is True
+                      else "INCONCLUSIVE" if verdict is None else "FAILED")
+            vcolor = (Fore.GREEN if verdict is True
+                      else Fore.YELLOW if verdict is None else Fore.RED)
+            click.echo(f"{vcolor}Read-back verification: {vlabel}{Style.RESET_ALL}")
+            if v.get("details"):
+                click.echo(f"  {v['details']}")
 
         click.echo(f"\n{'='*60}")
         if result.success:
@@ -433,17 +464,32 @@ def recover(source, out_dir, carve_only, fs_only, allow_mounted, operator):
 
 @cli.command("verify-report")
 @click.argument("report_path", type=click.Path(exists=True))
-def verify_report(report_path):
+@click.option("--allow-untrusted", is_flag=True,
+              help="Exit 0 for a signature that is cryptographically valid but "
+                   "was NOT made with the configured trust anchor "
+                   "(WIPERX_VERIFY_PUBKEY). Off by default: an untrusted "
+                   "signer is treated as a verification failure.")
+def verify_report(report_path, allow_untrusted):
     """Verify the Ed25519 signature on a WiperX report / certificate."""
     from core import report_signer
 
     res = report_signer.verify_file(report_path)
-    ok = res.get("valid")
+    valid = bool(res.get("valid"))
+    trusted = res.get("trusted")
+    anchor = res.get("anchor_configured", False)
+
+    # Fail when the signature is invalid, OR when a trust anchor is configured
+    # and the signer is not that anchor (unless --allow-untrusted).
+    ok = valid and (allow_untrusted or not anchor or bool(trusted))
+
     color = Fore.GREEN if ok else Fore.RED
-    click.echo(f"{color}{'VALID' if ok else 'INVALID'}{Style.RESET_ALL}  {report_path}")
+    label = "VALID" if valid else "INVALID"
+    if valid and anchor and not trusted and not allow_untrusted:
+        label = "VALID (UNTRUSTED SIGNER)"
+    click.echo(f"{color}{label}{Style.RESET_ALL}  {report_path}")
     click.echo(f"  key_id   : {res.get('key_id')}")
     click.echo(f"  signed_at: {res.get('signed_at')}")
-    click.echo(f"  trusted  : {res.get('trusted')}")
+    click.echo(f"  trusted  : {trusted}")
     click.echo(f"  reason   : {res.get('reason')}")
     sys.exit(0 if ok else 1)
 
@@ -468,6 +514,8 @@ def info():
         ["Linux NVMe", "nvme format --ses=1", "NVMe SSD", "NVMe Spec Crypto Erase"],
         ["Linux USB", "dd if=/dev/zero", "USB drives", "Full sector overwrite"],
         ["Windows", "diskpart clean all", "All Windows disks", "Microsoft diskpart"],
+        ["macOS", "diskutil secureErase / dd to /dev/rdiskN", "External HDD/SSD/USB",
+         "NIST SP 800-88; internal Apple SSD = crypto-erase only"],
     ]
     click.echo(tabulate(
         strategies,

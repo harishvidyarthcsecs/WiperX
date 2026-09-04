@@ -11,6 +11,7 @@ Strategies:
   - LinuxNVMeWipeStrategy : nvme format --ses=1
   - LinuxUSBWipeStrategy  : dd if=/dev/zero of=/dev/sdX bs=1M
   - WindowsWipeStrategy   : diskpart clean all
+  - MacOSWipeStrategy     : diskutil secureErase / dd to /dev/rdiskN
 
 Each strategy implements the WipeStrategy base class with a
 single `execute(disk, executor, log_callback)` method.
@@ -433,6 +434,160 @@ class WindowsWipeStrategy(WipeStrategy):
 
 
 # ---------------------------------------------------------------------------
+# macOS Wipe Strategy — diskutil secureErase / dd to raw device
+# ---------------------------------------------------------------------------
+
+class MacOSWipeStrategy(WipeStrategy):
+    """
+    Wipe an external macOS disk.
+
+    Native (no --method / passes):
+        diskutil unmountDisk force /dev/diskX
+        diskutil secureErase 0 diskX          (single-pass zero fill)
+
+    Multi-pass (--method dod/gutmann/... -> passes list):
+        diskutil unmountDisk force /dev/diskX
+        dd if=/dev/urandom|/dev/zero of=/dev/rdiskX bs=1m count=<size>
+
+    LIMITATIONS:
+      - The disk holding the running OS cannot be wiped (refused here).
+      - Apple-silicon internal storage ("Apple Fabric") is not addressable for
+        an overwrite; use Erase All Content and Settings (hardware crypto-erase).
+        Such a target is refused here.
+    """
+
+    name = "macOS-diskutil"
+    description = "diskutil secureErase / dd raw-device overwrite (external disks)"
+
+    def execute(self, disk, executor, log_callback=None, passes=None) -> bool:
+        ident = disk.identifier
+        whole = f"/dev/{ident}"
+        raw = f"/dev/r{ident}"
+
+        if getattr(disk, "is_system", False):
+            self._log(
+                f"REFUSED: {ident} backs the running macOS install and cannot "
+                "be wiped from a live system. Boot from a second volume / "
+                "Recovery and wipe from there.",
+                log_callback,
+            )
+            return False
+
+        if disk.bus_type == "Apple Fabric" or (
+            disk.disk_type == "NVMe" and getattr(disk, "bus_type", "") == "Apple Fabric"
+        ):
+            self._log(
+                f"REFUSED: {ident} is Apple-silicon internal storage. It is not "
+                "addressable for a sector overwrite; use 'Erase All Content and "
+                "Settings' (hardware cryptographic erase).",
+                log_callback,
+            )
+            return False
+
+        # Unmount so writes are not blocked. For a single partition unmount just
+        # that slice; for a whole disk unmount the whole disk.
+        is_part = getattr(disk, "is_partition", False)
+        umount_cmd = (
+            f"diskutil unmount force {whole}" if is_part
+            else f"diskutil unmountDisk force {whole}"
+        )
+        try:
+            out = executor.run_command(umount_cmd, timeout=120)
+            self._log(f"unmount: {str(out).strip()}", log_callback)
+        except Exception as e:  # noqa: BLE001 - continue; secureErase also unmounts
+            self._log(f"WARNING: unmount failed (non-fatal): {e}", log_callback)
+
+        if passes:
+            self._log(
+                f"Multi-pass overwrite ({len(passes)} pass(es)) on {raw}",
+                log_callback,
+            )
+            ok = self._run_passes_macos(raw, disk, executor, passes, log_callback)
+            try:
+                executor.run_command("sync", timeout=60)
+            except Exception:  # noqa: BLE001
+                pass
+            return ok
+
+        cmd = f"diskutil secureErase 0 {ident}"
+        self._log(f"Starting single-pass zero erase on {ident}", log_callback)
+        self._log(f"Command: {cmd}", log_callback)
+        try:
+            result = executor.run_command(cmd, timeout=14400)
+            self._log(f"secureErase output: {str(result).strip()}", log_callback)
+            self._log(f"Wipe complete on {ident}", log_callback)
+            return True
+        except Exception as e:
+            self._log(
+                f"ERROR: 'diskutil secureErase' failed on {ident}: {e}. "
+                "Some SSDs refuse secureErase; retry with an explicit "
+                "--method (multi-pass dd) or wipe from Recovery.",
+                log_callback,
+            )
+            return False
+
+    def _run_passes_macos(self, raw_device, disk, executor, passes, log_callback=None) -> bool:
+        """Explicit PassSpec overwrites via BSD dd against a raw device node."""
+        quoted = shlex.quote(raw_device)
+        bs_mib = 1
+        count_clause = ""
+        size_bytes = int(getattr(disk, "size_bytes", 0) or 0)
+        if size_bytes > 0:
+            unit = bs_mib * 1024 * 1024
+            blocks = (size_bytes + unit - 1) // unit
+            count_clause = f" count={blocks}"
+        else:
+            self._log("Device size unknown; writing until ENOSPC.", log_callback)
+
+        total = len(passes)
+        for index, spec in enumerate(passes, start=1):
+            kind = getattr(spec, "kind", "random")
+            byte = getattr(spec, "byte", None)
+
+            if kind == "verify":
+                self._log(
+                    f"Pass {index}/{total}: verify pass - deferred to post-wipe verifier",
+                    log_callback,
+                )
+                continue
+
+            if kind == "random":
+                cmd = f"dd if=/dev/urandom of={quoted} bs={bs_mib}m{count_clause}"
+                label = "random"
+            elif byte == 0:
+                cmd = f"dd if=/dev/zero of={quoted} bs={bs_mib}m{count_clause}"
+                label = "0x00"
+            else:
+                octal = format(int(byte), "03o")
+                cmd = (
+                    f"LC_ALL=C tr '\\000' '\\{octal}' < /dev/zero | "
+                    f"dd of={quoted} bs={bs_mib}m{count_clause}"
+                )
+                label = f"0x{int(byte):02x}"
+
+            self._log(f"Pass {index}/{total} ({label}): {cmd}", log_callback)
+            try:
+                out = executor.run_command(cmd, timeout=14400)
+                self._log(
+                    f"Pass {index}/{total} ({label}) complete. {str(out).strip()[:200]}",
+                    log_callback,
+                )
+            except Exception as exc:  # noqa: BLE001
+                if "No space left on device" in str(exc):
+                    self._log(
+                        f"Pass {index}/{total} ({label}) filled the device "
+                        "(ENOSPC on unbounded fill = expected).",
+                        log_callback,
+                    )
+                    continue
+                self._log(f"ERROR: pass {index}/{total} ({label}) failed: {exc}", log_callback)
+                return False
+
+        self._log(f"All {total} pass(es) complete on {raw_device}", log_callback)
+        return True
+
+
+# ---------------------------------------------------------------------------
 # Strategy Factory
 # ---------------------------------------------------------------------------
 
@@ -459,6 +614,9 @@ def get_strategy(disk, os_type, method: str = "auto") -> WipeStrategy:
 
     if os_type == OSType.WINDOWS:
         return WindowsWipeStrategy()
+
+    if os_type == OSType.MACOS:
+        return MacOSWipeStrategy()
 
     if os_type == OSType.LINUX:
         if disk.bus_type == "USB":

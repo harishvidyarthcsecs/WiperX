@@ -1,5 +1,7 @@
 """Tests for core.recovery.signatures (magic-number table + scanner)."""
 
+import random
+
 from core.recovery.signatures import (
     MAX_HEADER_LEN,
     SIGNATURES,
@@ -53,3 +55,43 @@ def test_by_name_and_aliases():
 def test_max_header_len_covers_longest_header():
     longest = max(sig.header_at + len(h) for sig in SIGNATURES for h in sig.headers)
     assert MAX_HEADER_LEN >= longest
+
+
+def test_iter_header_hits_ascending_offset_order():
+    """The bytes.find-per-header-variant rewrite must still yield hits in
+    strictly ascending offset order - carver_header.carve()'s sequential
+    `claimed`-ranges bookkeeping depends on it."""
+    blob = bytearray(b"\x00" * 8192)
+    for off, magic in ((6000, _ZIP), (100, _PNG), (3000, _JPEG), (50, b"ftyp")):
+        blob[off:off + len(magic)] = magic
+    hits = list(iter_header_hits(bytes(blob), base_offset=0))
+    offsets = [off for off, _sig in hits]
+    assert offsets == sorted(offsets)
+
+
+def _brute_force_hits(buf: bytes, base_offset: int = 0):
+    """Reference impl mirroring the pre-rewrite per-byte match_at() loop -
+    used only to pin the rewrite's output as a drop-in replacement."""
+    limit = len(buf) - MAX_HEADER_LEN
+    out = []
+    pos = 0
+    while pos <= limit:
+        sig = match_at(buf, pos)
+        if sig is not None:
+            out.append((base_offset + pos, sig.name))
+        pos += 1
+    return out
+
+
+def test_iter_header_hits_matches_brute_force_reference():
+    """iter_header_hits() must return exactly the same (offset, sig.name)
+    pairs, in the same order, as the original per-byte match_at() scan -
+    the rewrite is an internal speed optimization, not a behavior change."""
+    blob = bytearray(random.Random(0).randbytes(6000))
+    for off, magic in ((512, _PNG), (2048, _JPEG), (3072, _ZIP), (4500, _MP4)):
+        blob[off:off + len(magic)] = magic
+    buf = bytes(blob)
+
+    fast = [(off, sig.name) for off, sig in iter_header_hits(buf, base_offset=1000)]
+    brute = _brute_force_hits(buf, base_offset=1000)
+    assert fast == brute

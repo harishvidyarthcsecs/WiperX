@@ -17,7 +17,7 @@ import hashlib
 import json
 import logging
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Tuple
 
@@ -74,7 +74,7 @@ def build_case_report(
     return {
         "wiperx_recovery_report": {
             "schema_version": SCHEMA_VERSION,
-            "generated_at": datetime.utcnow().isoformat() + "Z",
+            "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z",
             "tool_version": tool_version,
             "operator": operator,
             "elapsed_s": round(elapsed_s, 3),

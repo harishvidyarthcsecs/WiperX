@@ -1,5 +1,12 @@
 """Shared pytest fixtures for the WiperX web layer."""
 
+import os
+
+# Pin the demo credentials before web.models builds its user store at import.
+os.environ.setdefault("WIPERX_ADMIN_PASSWORD", "admin123")
+os.environ.setdefault("WIPERX_OPERATOR_PASSWORD", "operator123")
+os.environ.setdefault("WIPERX_VIEWER_PASSWORD", "viewer123")
+
 import pytest
 
 from web.app import create_app

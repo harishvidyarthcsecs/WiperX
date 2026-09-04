@@ -19,46 +19,69 @@ Each file is overwritten, truncated, renamed several times, then unlinked.</p>
 
 <form method="POST" action="{{ url_for('eraser.run') }}" class="card p-4"
       onsubmit="return confirm('Permanently erase the listed paths?');">
-  <div class="mb-3">
+
+  <h6 class="text-uppercase text-muted small mb-2" style="letter-spacing:1px">What to erase</h6>
+  <div class="mb-1">
     <label class="form-label">Paths (one per line &mdash; files or folders)</label>
     <textarea name="paths" rows="6" class="form-control" placeholder="/data/case42/notes.txt&#10;/data/case42/photos"></textarea>
+    <small class="text-muted d-block mt-1">One file or folder per line. Folders are only
+      touched when <em>Recurse into folders</em> below is on.</small>
+  </div>
+  <div class="form-check mb-4">
+    <input class="form-check-input" type="checkbox" name="recursive" id="rc" checked>
+    <label class="form-check-label" for="rc">Recurse into folders</label>
+    <small class="text-muted d-block">Descend into every listed folder, erase all its files,
+      then remove the emptied directory tree. Off = only plain files in the list are erased.</small>
   </div>
 
-  <div class="row g-3">
-    <div class="col-md-3">
+  <hr style="border-color: var(--wx-border);">
+  <h6 class="text-uppercase text-muted small mb-2" style="letter-spacing:1px">Overwrite pattern</h6>
+  <div class="row g-3 mb-1">
+    <div class="col-md-4">
       <label class="form-label">Random passes</label>
       <input type="number" name="passes" value="1" min="1" max="35" class="form-control">
+      <small class="text-muted d-block mt-1">Random-data overwrites written before the file is
+        unlinked. NIST SP 800-88 <em>Clear</em> = 1 pass.</small>
     </div>
-    <div class="col-md-3 d-flex align-items-end">
-      <div class="form-check">
+    <div class="col-md-4">
+      <div class="form-check mt-4 pt-1">
         <input class="form-check-input" type="checkbox" name="zero_final" id="zf" checked>
         <label class="form-check-label" for="zf">Final zero pass</label>
       </div>
+      <small class="text-muted d-block">One all-zero pass written last, so the file's previous
+        size / pattern can't be inferred from the overwrite itself.</small>
     </div>
-    <div class="col-md-3 d-flex align-items-end">
-      <div class="form-check">
-        <input class="form-check-input" type="checkbox" name="recursive" id="rc" checked>
-        <label class="form-check-label" for="rc">Recurse into folders</label>
-      </div>
-    </div>
-    <div class="col-md-3">
+    <div class="col-md-4">
       <label class="form-label">Operator</label>
       <input type="text" name="operator" class="form-control" value="{{ current_user.username }}">
+      <small class="text-muted d-block mt-1">Recorded in the signed certificate.</small>
     </div>
   </div>
 
   <hr style="border-color: var(--wx-border);">
-
+  <h6 class="text-uppercase text-muted small mb-2" style="letter-spacing:1px">Free space (optional)</h6>
   <div class="row g-3">
     <div class="col-md-6">
-      <label class="form-label">Also wipe free space on mount (optional)</label>
-      <input type="text" name="wipe_free_mount" class="form-control" placeholder="/mnt/evidence">
+      <label class="form-label">Also wipe free space on mount</label>
+      <input type="text" name="wipe_free_mount" id="fsmount" class="form-control" placeholder="/mnt/evidence">
+      <small class="text-muted d-block mt-1">After erasing, fills every free block on this
+        filesystem with random data then zeros, then deletes the filler &mdash; this overwrites
+        blocks freed just now <em>and</em> by earlier, unrelated deletions.</small>
     </div>
-    <div class="col-md-3 d-flex align-items-end">
-      <div class="form-check">
-        <input class="form-check-input" type="checkbox" name="fstrim_after" id="ft">
-        <label class="form-check-label" for="ft">fstrim after (SSD)</label>
+    <div class="col-md-6">
+      <div class="form-check mt-4 pt-1">
+        <input class="form-check-input" type="checkbox" name="fstrim_after" id="ft" disabled>
+        <label class="form-check-label" for="ft">Send TRIM after (SSD, Linux only)</label>
       </div>
+      <small class="text-muted d-block">
+        Tells an SSD that the freed blocks are unused so its controller can discard them —
+        a housekeeping step, not itself a secure-erase pass.
+        {% if not is_linux %}
+          <strong class="text-warning d-block mt-1">Ignored on this OS (Linux-only) &mdash; disabled.</strong>
+        {% else %}
+          <span id="ft-hint">Enabled once a free-space mount is set above.</span>
+        {% endif %}
+      </small>
     </div>
   </div>
 
@@ -66,4 +89,20 @@ Each file is overwritten, truncated, renamed several times, then unlinked.</p>
     <i class="bi bi-eraser"></i> Erase &amp; issue certificate
   </button>
 </form>
+
+{% if is_linux %}
+<script>
+(function () {
+  var mount = document.getElementById('fsmount');
+  var trim = document.getElementById('ft');
+  function sync() {
+    var has = mount.value.trim().length > 0;
+    trim.disabled = !has;
+    if (!has) trim.checked = false;
+  }
+  mount.addEventListener('input', sync);
+  sync();
+})();
+</script>
+{% endif %}
 {% endblock %}

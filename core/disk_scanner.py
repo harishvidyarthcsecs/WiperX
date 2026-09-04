@@ -12,6 +12,10 @@ Windows: Uses PowerShell `Get-Disk` to enumerate disk objects
          - BusType: USB, SATA, NVMe, SCSI
          - Returns disk number, model, size, bus type
 
+macOS  : Uses `diskutil list -plist` + `diskutil info -plist <id>`
+         - SolidState → SSD, BusProtocol → bus type
+         - identifier is the whole-disk node (e.g. "disk2")
+
 The scanner normalizes output into a uniform DiskInfo dataclass
 regardless of the underlying OS.
 """
@@ -56,6 +60,11 @@ class DiskInfo:
     is_mounted: bool = False
     raw: str = ""
     partitions: List[str] = field(default_factory=list)
+    # Set when this DiskInfo represents a single partition / slice (e.g.
+    # "disk8s1") rather than a whole physical disk. parent_identifier names
+    # the whole disk it belongs to.
+    is_partition: bool = False
+    parent_identifier: Optional[str] = None
 
     def display_name(self) -> str:
         """Returns a human-readable identifier string."""
@@ -120,6 +129,8 @@ class DiskScanner:
             return self._scan_linux()
         elif self.os_type == OSType.WINDOWS:
             return self._scan_windows()
+        elif self.os_type == OSType.MACOS:
+            return self._scan_macos()
         else:
             raise RuntimeError(
                 f"[DiskScanner] Unsupported OS type: {self.os_type}. "
@@ -279,6 +290,173 @@ class DiskScanner:
 
         logger.info(f"[DiskScanner] Windows scan complete: {len(disks)} disk(s) found.")
         return disks
+
+    # ------------------------------------------------------------------
+    # macOS Scanning
+    # ------------------------------------------------------------------
+
+    def _scan_macos(self) -> List[DiskInfo]:
+        """Parse `diskutil` plist output and build DiskInfo list for macOS."""
+        import plistlib
+
+        try:
+            raw_list = self.executor.run_command("diskutil list -plist")
+            listing = plistlib.loads(self._as_bytes(raw_list))
+        except Exception as e:
+            logger.error(f"[DiskScanner] 'diskutil list' failed or unparseable: {e}")
+            return []
+
+        whole_disks = listing.get("WholeDisks") or []
+        system_disks = self._get_system_whole_disks_macos()
+
+        disks: List[DiskInfo] = []
+        for ident in whole_disks:
+            try:
+                raw_info = self.executor.run_command(f"diskutil info -plist {ident}")
+                info = plistlib.loads(self._as_bytes(raw_info))
+            except Exception as e:
+                logger.warning(f"[DiskScanner] 'diskutil info {ident}' failed: {e}")
+                continue
+
+            size_bytes = int(info.get("TotalSize") or info.get("Size") or 0)
+            bus_raw = (info.get("BusProtocol") or "Unknown").strip()
+            solid = bool(info.get("SolidState"))
+            internal = bool(info.get("Internal"))
+            removable = bool(info.get("RemovableMedia"))
+
+            bus_upper = bus_raw.upper()
+            if "USB" in bus_upper:
+                bus_type = "USB"
+            elif "SATA" in bus_upper:
+                bus_type = "SATA"
+            elif "THUNDERBOLT" in bus_upper:
+                bus_type = "Thunderbolt"
+            elif "APPLE FABRIC" in bus_upper:
+                bus_type = "Apple Fabric"
+            elif "PCI" in bus_upper:
+                bus_type = "NVMe"
+            elif "DISK IMAGE" in bus_upper:
+                bus_type = "Disk Image"
+            else:
+                bus_type = bus_raw or "Unknown"
+
+            if bus_type in ("NVMe", "Apple Fabric"):
+                disk_type = "NVMe"
+            elif solid:
+                disk_type = "SSD"
+            else:
+                disk_type = "HDD"
+
+            children = self._macos_children(ident, listing)
+            is_mounted = bool((info.get("MountPoint") or "").strip()) or \
+                any(c["mounted"] for c in children)
+
+            # Safety: if we could not resolve the system disk(s), treat every
+            # internal non-removable disk as system so it cannot be wiped.
+            if system_disks:
+                is_system = ident in system_disks
+            else:
+                is_system = internal and not removable
+
+            disk = DiskInfo(
+                identifier=ident,
+                model=(info.get("MediaName") or info.get("IORegistryEntryName")
+                       or "Unknown").strip() or "Unknown",
+                serial=(info.get("DiskUUID") or "").strip(),
+                size_human=self._bytes_to_human(size_bytes),
+                size_bytes=size_bytes,
+                disk_type=disk_type,
+                bus_type=bus_type,
+                is_system=is_system,
+                is_mounted=is_mounted,
+                raw=str(info),
+                partitions=[c["id"] for c in children if c["id"]],
+            )
+            disks.append(disk)
+            logger.debug(f"[DiskScanner] Found disk: {disk.display_name()}")
+
+            # Also emit a DiskInfo per partition so callers can target a single
+            # slice (e.g. `wipe disk8s1`) instead of the whole physical disk.
+            for c in children:
+                if not c["id"]:
+                    continue
+                disks.append(DiskInfo(
+                    identifier=c["id"],
+                    model=disk.model,
+                    serial="",
+                    size_human=self._bytes_to_human(c.get("size") or 0),
+                    size_bytes=c.get("size") or 0,
+                    disk_type=disk_type,
+                    bus_type=bus_type,
+                    is_system=is_system,       # never let a slice of the OS disk be wiped
+                    is_mounted=bool(c["mounted"]),
+                    raw="",
+                    partitions=[],
+                    is_partition=True,
+                    parent_identifier=ident,
+                ))
+
+        logger.info(f"[DiskScanner] macOS scan complete: {len(disks)} disk(s) found.")
+        return disks
+
+    def _get_system_whole_disks_macos(self) -> set:
+        """Whole-disk identifiers that back the running OS (root filesystem)."""
+        import plistlib
+
+        found: set = set()
+        try:
+            raw = self.executor.run_command("diskutil info -plist /")
+            info = plistlib.loads(self._as_bytes(raw))
+        except Exception as e:
+            logger.warning(f"[DiskScanner] Could not resolve root device: {e}")
+            return found
+
+        parent = (info.get("ParentWholeDisk") or "").strip()
+        if parent:
+            found.add(self._whole_disk_id(parent))
+
+        # The volume backing / is usually an APFS volume inside a synthesized
+        # container; resolve the container's physical stores to the real disks.
+        if parent:
+            try:
+                raw_c = self.executor.run_command(f"diskutil info -plist {parent}")
+                cinfo = plistlib.loads(self._as_bytes(raw_c))
+                for store in cinfo.get("APFSPhysicalStores") or []:
+                    dev = (store.get("APFSPhysicalStore") or "").strip()
+                    if dev:
+                        found.add(self._whole_disk_id(dev))
+            except Exception:  # noqa: BLE001 - best effort
+                pass
+        return found
+
+    @staticmethod
+    def _macos_children(ident: str, listing: dict) -> List[dict]:
+        """[{id, mounted, size}] for the partitions / APFS volumes of one whole disk."""
+        out: List[dict] = []
+        for entry in listing.get("AllDisksAndPartitions") or []:
+            if entry.get("DeviceIdentifier") != ident:
+                continue
+            parts = (entry.get("Partitions") or []) + (entry.get("APFSVolumes") or [])
+            for part in parts:
+                out.append({
+                    "id": (part.get("DeviceIdentifier") or "").strip(),
+                    "mounted": bool((part.get("MountPoint") or "").strip()),
+                    "size": int(part.get("Size") or 0),
+                })
+        return out
+
+    @staticmethod
+    def _whole_disk_id(dev: str) -> str:
+        """'disk0s2' / '/dev/disk0s2' -> 'disk0'."""
+        m = re.search(r"(disk\d+)", dev)
+        return m.group(1) if m else dev
+
+    @staticmethod
+    def _as_bytes(out) -> bytes:
+        """Normalize an executor result (str or bytes) to bytes for plistlib."""
+        if isinstance(out, bytes):
+            return out
+        return str(out).encode("utf-8", "replace")
 
     # ------------------------------------------------------------------
     # Helpers

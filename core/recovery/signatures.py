@@ -81,7 +81,10 @@ SIGNATURES: List[Signature] = [
               min_bytes=64, max_bytes=256 * 1024 * 1024),
     Signature("mp4", "mp4", "video", headers=(b"ftyp",), header_at=4,
               min_bytes=256, max_bytes=512 * 1024 * 1024, structure="mp4"),
-    Signature("mp3", "mp3", "audio", headers=(b"ID3", b"\xff\xfb", b"\xff\xf3"),
+    # Bare MPEG frame-sync bytes (0xFF 0xFB / 0xFF 0xF3) collide with ~1-in-8k
+    # random byte pairs and, being footerless, greedily carve to EOF — masking
+    # every real file downstream. Require an ID3 tag instead.
+    Signature("mp3", "mp3", "audio", headers=(b"ID3",),
               min_bytes=128, max_bytes=64 * 1024 * 1024),
     Signature("wav", "wav", "audio", headers=(b"RIFF",),
               min_bytes=64, max_bytes=256 * 1024 * 1024, structure="riff"),
@@ -105,20 +108,41 @@ def match_at(buf: bytes, pos: int) -> Optional[Signature]:
     return None
 
 
+# Flattened once at import time: (header_bytes, Signature, header_at) in
+# SIGNATURES order, so a stable sort of collected hits reproduces the same
+# first-match-wins tie-break `match_at`'s per-offset loop used to give.
+_HEADER_VARIANTS: List[Tuple[bytes, Signature, int]] = [
+    (header, sig, sig.header_at)
+    for sig in SIGNATURES
+    for header in sig.headers
+]
+
+
 def iter_header_hits(buf: bytes, base_offset: int = 0) -> Iterator[Tuple[int, Signature]]:
     """
-    Yield (absolute_offset, Signature) for every header match in `buf`.
+    Yield (absolute_offset, Signature) for every header match in `buf`,
+    in ascending offset order.
 
     `base_offset` is the position of buf[0] within the whole source, so the
     yielded offset is absolute.
+
+    Runs one C-level `bytes.find` sweep per header variant instead of
+    testing every signature at every byte offset in Python - same matches,
+    same tie-break order, orders of magnitude fewer interpreter ops.
     """
-    limit = len(buf) - MAX_HEADER_LEN
-    pos = 0
-    while pos <= limit:
-        sig = match_at(buf, pos)
-        if sig is not None:
-            yield base_offset + pos, sig
-        pos += 1
+    hits: List[Tuple[int, Signature]] = []
+    for header, sig, header_at in _HEADER_VARIANTS:
+        start = 0
+        while True:
+            idx = buf.find(header, start)
+            if idx == -1:
+                break
+            pos = idx - header_at
+            if pos >= 0:
+                hits.append((base_offset + pos, sig))
+            start = idx + 1
+    hits.sort(key=lambda h: h[0])
+    yield from hits
 
 
 def by_name(name: str) -> Optional[Signature]:

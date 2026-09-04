@@ -20,7 +20,8 @@ class TestOSDetector:
         from core.os_detector import OSDetector, OSType
         detector = OSDetector()
         result = detector.detect_local()
-        assert result in [OSType.LINUX, OSType.WINDOWS, OSType.UNSUPPORTED]
+        assert result in [OSType.LINUX, OSType.WINDOWS, OSType.MACOS,
+                          OSType.UNSUPPORTED]
 
     def test_detect_remote_no_executors_returns_unsupported(self):
         from core.os_detector import OSDetector, OSType
@@ -109,6 +110,13 @@ class TestStrategyFactory:
         strategy = get_strategy(disk, OSType.WINDOWS)
         assert isinstance(strategy, WindowsWipeStrategy)
 
+    def test_macos_gets_diskutil(self):
+        from core.strategies import get_strategy, MacOSWipeStrategy
+        from core.os_detector import OSType
+        disk = self._make_disk("SSD", "USB", "disk4")
+        strategy = get_strategy(disk, OSType.MACOS)
+        assert isinstance(strategy, MacOSWipeStrategy)
+
     def test_unsupported_os_raises(self):
         from core.strategies import get_strategy
         from core.os_detector import OSType
@@ -193,6 +201,91 @@ class TestExecutionManagerSafety:
 
         assert result.success is False
         assert "Safety FAILED" in (result.error or "")
+
+    def test_mounted_disk_is_blocked_by_default(self):
+        """A mounted disk is refused unless force_unmount is explicitly set."""
+        from core.execution_manager import ExecutionManager, WipeRequest, ExecutionMode
+        from core.disk_scanner import DiskInfo
+        from unittest.mock import patch, MagicMock
+
+        manager = ExecutionManager()
+        disk = DiskInfo(identifier="disk8", is_system=False, is_mounted=True, bus_type="USB")
+
+        with patch.object(manager, "_build_executor_and_detect_os") as mock_build, \
+             patch("core.execution_manager.DiskScanner") as mock_scanner_cls, \
+             patch.object(manager, "_check_privileges"):
+
+            from core.os_detector import OSType
+            mock_build.return_value = (MagicMock(), OSType.MACOS)
+            mock_scanner = MagicMock()
+            mock_scanner.scan.return_value = [disk]
+            mock_scanner_cls.return_value = mock_scanner
+
+            request = WipeRequest(disk_identifier="disk8", confirmed_disk_name="disk8",
+                                  mode=ExecutionMode.LOCAL)
+            result = manager.execute_wipe(request)
+
+        assert result.success is False
+        assert "mounted" in (result.error or "").lower()
+
+    def test_mounted_removable_with_force_unmount_proceeds(self):
+        """force_unmount + non-system + removable bus -> the wipe proceeds."""
+        from core.execution_manager import ExecutionManager, WipeRequest, ExecutionMode
+        from core.disk_scanner import DiskInfo
+        from unittest.mock import patch, MagicMock
+
+        manager = ExecutionManager()
+        disk = DiskInfo(identifier="disk8", is_system=False, is_mounted=True, bus_type="USB")
+
+        with patch.object(manager, "_build_executor_and_detect_os") as mock_build, \
+             patch("core.execution_manager.DiskScanner") as mock_scanner_cls, \
+             patch.object(manager, "_check_privileges"), \
+             patch("core.execution_manager.get_strategy") as mock_get_strategy, \
+             patch("core.verifier.WipeVerifier.verify", return_value={"verified": True}):
+
+            from core.os_detector import OSType
+            mock_build.return_value = (MagicMock(), OSType.MACOS)
+            mock_scanner = MagicMock()
+            mock_scanner.scan.return_value = [disk]
+            mock_scanner_cls.return_value = mock_scanner
+
+            strat = MagicMock()
+            strat.name = "MacOSWipeStrategy"
+            strat.execute.return_value = True
+            mock_get_strategy.return_value = strat
+
+            request = WipeRequest(disk_identifier="disk8", confirmed_disk_name="disk8",
+                                  mode=ExecutionMode.LOCAL, force_unmount=True)
+            result = manager.execute_wipe(request)
+
+        assert result.success is True
+
+    def test_mounted_internal_with_force_unmount_still_blocked(self):
+        """force_unmount never overrides the internal/system-adjacent block."""
+        from core.execution_manager import ExecutionManager, WipeRequest, ExecutionMode
+        from core.disk_scanner import DiskInfo
+        from unittest.mock import patch, MagicMock
+
+        manager = ExecutionManager()
+        disk = DiskInfo(identifier="disk2", is_system=False, is_mounted=True,
+                        bus_type="Apple Fabric")
+
+        with patch.object(manager, "_build_executor_and_detect_os") as mock_build, \
+             patch("core.execution_manager.DiskScanner") as mock_scanner_cls, \
+             patch.object(manager, "_check_privileges"):
+
+            from core.os_detector import OSType
+            mock_build.return_value = (MagicMock(), OSType.MACOS)
+            mock_scanner = MagicMock()
+            mock_scanner.scan.return_value = [disk]
+            mock_scanner_cls.return_value = mock_scanner
+
+            request = WipeRequest(disk_identifier="disk2", confirmed_disk_name="disk2",
+                                  mode=ExecutionMode.LOCAL, force_unmount=True)
+            result = manager.execute_wipe(request)
+
+        assert result.success is False
+        assert "mounted" in (result.error or "").lower()
 
 
 # ---------------------------------------------------------------------------

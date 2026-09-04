@@ -39,6 +39,7 @@ def confirm():
         confirmed_name = request.form.get("confirm_name", "").strip()
         second_confirm = request.form.get("second_confirm", "")
         operator = request.form.get("operator", current_user.username)
+        force_unmount = request.form.get("force_unmount") == "on"
 
         if second_confirm != "WIPE":
             flash("You must type 'WIPE' exactly to confirm.", "danger")
@@ -55,6 +56,7 @@ def confirm():
             "confirmed_name": confirmed_name,
             "machine_id": machine_id,
             "operator": operator,
+            "force_unmount": force_unmount,
         }
 
         log_event("wipe_confirmed_web", {
@@ -146,6 +148,7 @@ def run_wipe():
             mode=exec_mode,
             remote_config=remote_config,
             log_callback=log_cb,
+            force_unmount=pending.get("force_unmount", False),
         )
 
         result = manager.execute_wipe(wipe_request)

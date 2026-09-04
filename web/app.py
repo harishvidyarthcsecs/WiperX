@@ -24,10 +24,22 @@ Role-based Access (Design Level):
 
 import os
 import logging
+import secrets
+
 from flask import Flask
 from flask_login import LoginManager
 
+# Load a local .env before anything reads os.environ. No-op if unavailable.
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except Exception:  # noqa: BLE001
+    pass
+
 from web.models import get_user_store
+
+logger = logging.getLogger(__name__)
 
 # Configure structured logging
 logging.basicConfig(
@@ -53,8 +65,24 @@ def create_app(config_override: dict = None) -> Flask:
     )
 
     # ── Configuration ──
+    _ov = config_override or {}
+    _testing = bool(_ov.get("TESTING")) or bool(_ov.get("DEBUG")) or app.debug
+    _secret = os.environ.get("WIPERX_SECRET_KEY")
+    if not _secret:
+        if _testing:
+            _secret = secrets.token_hex(32)
+            logger.warning(
+                "WIPERX_SECRET_KEY not set - using an ephemeral key "
+                "(fine for tests/dev, sessions reset on restart)."
+            )
+        else:
+            raise RuntimeError(
+                "WIPERX_SECRET_KEY must be set for a non-debug run. "
+                "Export it (see .env.example) before starting WiperX."
+            )
+
     app.config.update({
-        "SECRET_KEY": os.environ.get("WIPERX_SECRET_KEY", "change-me-in-production-use-env-var"),
+        "SECRET_KEY": _secret,
         "SESSION_COOKIE_HTTPONLY": True,
         "SESSION_COOKIE_SAMESITE": "Lax",
         "SESSION_COOKIE_SECURE": os.environ.get("WIPERX_HTTPS", "false").lower() == "true",

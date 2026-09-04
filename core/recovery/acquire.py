@@ -21,7 +21,7 @@ import logging
 import os
 import platform
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple
 
@@ -139,6 +139,39 @@ class Source:
         self.close()
 
 
+def _device_size_fallback(fd: int, path: str) -> int:
+    """Best-effort block-device size when lseek(SEEK_END) returns 0 (macOS)."""
+    system = platform.system()
+    try:
+        import fcntl
+        import struct
+        if system == "Darwin":
+            # DKIOCGETBLOCKCOUNT = 0x40086419, DKIOCGETBLOCKSIZE = 0x40046418
+            bcount = struct.unpack("Q", fcntl.ioctl(fd, 0x40086419, b"\x00" * 8))[0]
+            bsize = struct.unpack("I", fcntl.ioctl(fd, 0x40046418, b"\x00" * 4))[0]
+            if bcount and bsize:
+                return bcount * bsize
+        elif system == "Linux":
+            # BLKGETSIZE64 = 0x80081272
+            return struct.unpack("Q", fcntl.ioctl(fd, 0x80081272, b"\x00" * 8))[0]
+    except Exception:  # noqa: BLE001 - fall through to diskutil
+        pass
+
+    if system == "Darwin":
+        try:
+            import plistlib
+            import subprocess
+            out = subprocess.run(
+                ["diskutil", "info", "-plist", path],
+                capture_output=True, timeout=15,
+            )
+            info = plistlib.loads(out.stdout)
+            return int(info.get("TotalSize") or info.get("Size") or 0)
+        except Exception:  # noqa: BLE001
+            pass
+    return 0
+
+
 def open_source(path: str, *, allow_mounted: bool = False) -> Source:
     """
     Open a device or image file read-only for recovery.
@@ -169,11 +202,20 @@ def open_source(path: str, *, allow_mounted: bool = False) -> Source:
         if is_device:
             size = os.lseek(fd, 0, os.SEEK_END)
             os.lseek(fd, 0, os.SEEK_SET)
+            if not size:
+                # macOS block devices don't report size via lseek(SEEK_END);
+                # fall back to an ioctl (block count * block size), then to
+                # `diskutil`.
+                size = _device_size_fallback(fd, path)
         else:
             size = os.path.getsize(path)
     except OSError as exc:
         os.close(fd)
         raise SourceError(f"cannot size {path}: {exc}") from exc
+
+    if is_device and not size:
+        os.close(fd)
+        raise SourceError(f"cannot determine size of device {path}")
 
     logger.info("[acquire] opened %s (%s, %d bytes) read-only",
                 path, "device" if is_device else "image", size)
@@ -189,8 +231,9 @@ class Case:
         self.recovered_dir.mkdir(parents=True, exist_ok=True)
         self.source = source
         self.operator = operator
-        self.case_id = datetime.utcnow().strftime("case-%Y%m%dT%H%M%SZ")
-        self.started_at = datetime.utcnow().isoformat() + "Z"
+        _now = datetime.now(timezone.utc)
+        self.case_id = _now.strftime("case-%Y%m%dT%H%M%SZ")
+        self.started_at = _now.strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
         logger.info("[acquire] case %s -> %s", self.case_id, self.dir)
 
     def manifest_header(self) -> dict:

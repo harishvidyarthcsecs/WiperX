@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 class OSType(str, Enum):
     LINUX = "linux"
     WINDOWS = "windows"
+    MACOS = "macos"
     UNSUPPORTED = "unsupported"
 
 
@@ -44,6 +45,8 @@ class OSDetector:
             return OSType.LINUX
         elif "windows" in system:
             return OSType.WINDOWS
+        elif "darwin" in system:
+            return OSType.MACOS
         else:
             logger.warning(f"[OSDetector] Unsupported local OS: {system}")
             return OSType.UNSUPPORTED
@@ -57,7 +60,7 @@ class OSDetector:
         Detect OS of a remote machine by attempting SSH then WinRM.
 
         Strategy:
-          1. Try SSH → run `uname -s` → if response contains "Linux" → LINUX
+          1. Try SSH → run `uname -s` → "Linux" → LINUX, "Darwin" → MACOS
           2. Try WinRM → run `systeminfo` → if response succeeds → WINDOWS
           3. If both fail → UNSUPPORTED
 
@@ -68,17 +71,21 @@ class OSDetector:
         Returns:
             OSType: Detected remote OS type.
         """
-        # --- Attempt 1: SSH (Linux) ---
+        # --- Attempt 1: SSH (Linux / macOS) ---
         if ssh_executor is not None:
             try:
                 result = ssh_executor.run_command("uname -s")
-                if result and "linux" in result.strip().lower():
+                uname = result.strip().lower() if result else ""
+                if "linux" in uname:
                     logger.info("[OSDetector] Remote OS detected via SSH: LINUX")
                     return OSType.LINUX
+                elif "darwin" in uname:
+                    logger.info("[OSDetector] Remote OS detected via SSH: MACOS")
+                    return OSType.MACOS
                 elif result:
-                    # Could be macOS or BSD — treat as unsupported in this context
+                    # Some other UNIX (BSD/Solaris) — not supported here
                     logger.warning(
-                        f"[OSDetector] SSH uname returned unexpected value: {result}"
+                        f"[OSDetector] SSH uname returned unsupported value: {result}"
                     )
             except Exception as e:
                 logger.debug(f"[OSDetector] SSH detection failed: {e}")

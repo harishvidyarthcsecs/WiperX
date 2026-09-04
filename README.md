@@ -27,10 +27,27 @@ WiperX is a **unified, modular disk sanitization system** that operates as both 
 
 ### Supported Platforms
 
-| OS       | Local | Remote (SSH) | Remote (WinRM) |
-|----------|-------|-------------|----------------|
-| Linux    | ✅    | ✅           | ❌              |
-| Windows  | ✅    | ❌           | ✅              |
+| OS       | Local | Remote (SSH) | Remote (WinRM) | Wipe backend |
+|----------|-------|--------------|----------------|--------------|
+| Linux    | ✅    | ✅           | ❌             | `shred` / `blkdiscard` / `nvme format` / `dd` |
+| Windows  | ✅    | ❌           | ✅             | `diskpart clean all` |
+| macOS    | ✅    | ✅           | ❌             | `diskutil secureErase` / raw `dd` to `/dev/rdiskN` |
+
+On macOS an Apple-silicon **internal** SSD is refused for a sector overwrite
+(use *Erase All Content and Settings* — hardware crypto-erase); external
+USB / Thunderbolt disks and single partitions (`disk8s1`) are wipeable.
+
+#### macOS quick setup
+
+```bash
+brew install sleuthkit libmagic          # optional: Module 3 recovery
+python3.11 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+pip install -e ".[forensics]"            # optional
+cp .env.example .env                     # then set WIPERX_SECRET_KEY
+sudo python -m cli.wiperx_cli scan --local
+sudo python -m cli.wiperx_cli wipe disk8s1 --force-unmount   # a single partition
+```
 
 ---
 
@@ -173,10 +190,14 @@ export WIPERX_WINRM_PASS="your-windows-password"
 ### Run Flask Web App
 
 ```bash
-python run.py --host 127.0.0.1 --port 5000
+export WIPERX_SECRET_KEY="$(python -c 'import secrets;print(secrets.token_hex(32))')"
+export WIPERX_ADMIN_PASSWORD="choose-a-password"   # or let it print a random one
+python run.py --host 127.0.0.1 --port 5000         # add --debug to skip the secret-key check
 
 # Access at http://127.0.0.1:5000
-# Default credentials: admin / admin123
+# Users: admin / operator / viewer — passwords come from WIPERX_*_PASSWORD env
+# vars (a random one is generated and logged if unset). The in-memory store is
+# demo-only; back it with a real database for anything beyond a lab.
 ```
 
 ### Run CLI

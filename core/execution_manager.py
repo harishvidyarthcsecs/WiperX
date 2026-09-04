@@ -25,6 +25,7 @@ from typing import Optional, List, Callable, Dict, Any
 
 from core.disk_scanner import DiskScanner
 from core.strategies import get_strategy
+from core.timeutils import utc_iso
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +66,8 @@ class WipeRequest:
     remote_config: Optional[RemoteConnectionConfig] = None
     method: str = "auto"            # "auto" | "shred" | "dd" | "nvme" | "diskpart"
     log_callback: Optional[Callable[[str], None]] = None
+    force_unmount: bool = False     # allow a mounted *removable* non-system disk
+                                    # (the strategy force-unmounts it first)
 
 
 @dataclass
@@ -83,6 +86,11 @@ class WipeResult:
     method: str = "auto"          # requested wipe method (see core.wipe_passes)
     pass_count: int = 0           # explicit overwrite passes run (0 = native default)
     verification: Optional[dict] = None  # post-wipe WipeVerifier result
+
+
+def _is_removable(disk) -> bool:
+    """True for external / hot-pluggable media that is safe to force-unmount."""
+    return getattr(disk, "bus_type", "") in ("USB", "Thunderbolt", "Disk Image")
 
 
 class ExecutionManager:
@@ -147,10 +155,8 @@ class ExecutionManager:
         Returns:
             WipeResult: Outcome of the wipe operation.
         """
-        import datetime
-
         self._log_buffer = []
-        timestamp = datetime.datetime.utcnow().isoformat() + "Z"
+        timestamp = utc_iso()
 
         def _log(msg: str):
             self._log_buffer.append(msg)
@@ -217,11 +223,20 @@ class ExecutionManager:
             # --- Safety Check 4: Mounted check ---
             _log("[Safety Check 4] Checking if disk is currently mounted...")
             if target_disk.is_mounted:
-                raise PermissionError(
-                    f"SAFETY BLOCK: Disk '{target_disk.identifier}' or its partitions "
-                    "are currently mounted. Unmount before wiping."
-                )
-            _log("[Safety Check 4] PASSED: Disk is not mounted.")
+                if (request.force_unmount and not target_disk.is_system
+                        and _is_removable(target_disk)):
+                    _log(
+                        "[Safety Check 4] OVERRIDE — force-unmount requested for a "
+                        f"removable disk ('{target_disk.identifier}', "
+                        f"bus={target_disk.bus_type}); the strategy will unmount it."
+                    )
+                else:
+                    raise PermissionError(
+                        f"SAFETY BLOCK: Disk '{target_disk.identifier}' or its partitions "
+                        "are currently mounted. Unmount before wiping."
+                    )
+            else:
+                _log("[Safety Check 4] PASSED: Disk is not mounted.")
 
             # Select strategy
             strategy = get_strategy(
@@ -277,11 +292,25 @@ class ExecutionManager:
                         target_disk, executor, os_type,
                         log_callback=_log, expected=expected,
                     )
-                except Exception as exc:  # noqa: BLE001 - never fail the wipe on verify
+                except Exception as exc:  # noqa: BLE001 - verify exceptions stay non-fatal
                     _log(f"[Verify] verification error: {exc}")
                     verification = {
                         "verified": None, "method": "error", "details": str(exc)
                     }
+
+            # A wipe command that "succeeded" but whose read-back verification
+            # definitively FAILED (verified is False, not None/inconclusive) is
+            # not a successful wipe. Downgrade so the CLI exit code and the
+            # certificate both reflect reality.
+            wipe_error = None
+            if success and isinstance(verification, dict) \
+                    and verification.get("verified") is False:
+                success = False
+                wipe_error = (
+                    "Wipe command completed but post-wipe verification FAILED: "
+                    + str(verification.get("details", "residual data detected"))
+                )
+                _log(f">>> VERIFICATION FAILED — wipe marked UNSUCCESSFUL <<<")
 
             return WipeResult(
                 success=success,
@@ -291,6 +320,7 @@ class ExecutionManager:
                 os_detected=str(os_type),
                 timestamp=timestamp,
                 log_lines=list(self._log_buffer),
+                error=wipe_error,
                 disk_model=target_disk.model,
                 disk_serial=target_disk.serial,
                 method=method,
@@ -390,7 +420,18 @@ class ExecutionManager:
 
         if isinstance(executor, LocalExecutor):
             import os
-            if platform.system().lower() != "windows":
+            if platform.system().lower() == "windows":
+                try:
+                    import ctypes
+                    is_admin = bool(ctypes.windll.shell32.IsUserAnAdmin())
+                except Exception:  # noqa: BLE001 - can't determine => assume not
+                    is_admin = False
+                if not is_admin:
+                    raise PermissionError(
+                        "WiperX requires Administrator privileges. "
+                        "Run from an elevated (Run as administrator) prompt."
+                    )
+            else:
                 if os.geteuid() != 0:
                     raise PermissionError(
                         "WiperX requires root privileges. Run with sudo."
@@ -399,7 +440,7 @@ class ExecutionManager:
             return
 
         # Remote: check via command
-        if os_type == OSType.LINUX:
+        if os_type in (OSType.LINUX, OSType.MACOS):
             result = executor.run_command("id -u")
             if result.strip() != "0":
                 raise PermissionError(
