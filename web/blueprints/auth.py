@@ -1,12 +1,26 @@
 # wiperx/web/blueprints/auth.py
 """Auth Blueprint — Login and logout routes."""
 
+from urllib.parse import urlparse
+
 from flask import Blueprint, render_template, redirect, url_for, flash, request
 from flask_login import login_user, logout_user, login_required, current_user
 from web.models import find_user_by_username
 from core.audit_logger import log_event
 
 auth_bp = Blueprint("auth", __name__)
+
+
+def _safe_next(target):
+    """Return ``target`` only if it is a local path (blocks open redirects)."""
+    if not target:
+        return None
+    parsed = urlparse(target)
+    if parsed.scheme or parsed.netloc:
+        return None
+    if not target.startswith("/") or target.startswith("//"):
+        return None
+    return target
 
 
 @auth_bp.route("/login", methods=["GET", "POST"])
@@ -23,7 +37,7 @@ def login():
             login_user(user, remember=False)
             log_event("user_login", {"username": username, "ip": request.remote_addr})
             flash(f"Welcome, {user.display_name}!", "success")
-            next_page = request.args.get("next")
+            next_page = _safe_next(request.args.get("next"))
             return redirect(next_page or url_for("dashboard.index"))
         else:
             log_event("login_failed", {"username": username, "ip": request.remote_addr})

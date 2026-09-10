@@ -323,4 +323,10 @@ def verify_file(path: "os.PathLike | str") -> dict:
     except (OSError, json.JSONDecodeError) as exc:
         return {"valid": False, "key_id": None, "signed_at": None,
                 "trusted": False, "reason": f"Could not read report: {exc}"}
-    return verify_payload(envelope)
+    try:
+        return verify_payload(envelope)
+    except RuntimeError as exc:
+        # cryptography not installed - degrade instead of 500-ing every page
+        # that lists a signed report.
+        return {"valid": False, "key_id": None, "signed_at": None,
+                "trusted": False, "reason": str(exc)}

@@ -57,6 +57,16 @@ if __name__ == "__main__":
     parser.add_argument("--debug", action="store_true", help="Enable Flask debug mode")
     args = parser.parse_args()
 
+    _LOOPBACK = {"127.0.0.1", "::1", "localhost"}
+    if args.debug and args.host not in _LOOPBACK:
+        print(
+            f"ERROR: --debug exposes the Werkzeug debugger (remote code execution) "
+            f"and is refused on a non-loopback host ({args.host}). "
+            f"Use --host 127.0.0.1, or drop --debug.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
     if not os.environ.get("WIPERX_SECRET_KEY") and not args.debug:
         print("ERROR: WIPERX_SECRET_KEY is not set. Export it (see .env.example) "
               "or pass --debug for a throwaway dev key.", file=sys.stderr)

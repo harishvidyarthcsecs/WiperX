@@ -9,16 +9,13 @@ Each file is overwritten, truncated, renamed several times, then unlinked.</p>
 <div class="wipe-warning-box mb-4">
   <i class="bi bi-exclamation-triangle-fill text-danger"></i>
   This <strong>permanently destroys</strong> the listed files. There is no undo.
-  {% if allowed_root %}
-  <div class="small mt-2">Allowed root on this server: <code>{{ allowed_root }}</code></div>
-  {% else %}
-  <div class="small mt-2 text-warning">No <code>WIPERX_ERASE_ALLOWED_ROOT</code> configured &mdash;
-    any server path may be targeted. Set it before exposing this UI.</div>
-  {% endif %}
+  <div class="small mt-2">Only paths inside <code>{{ allowed_root }}</code> may be
+    targeted. Set <code>WIPERX_ERASE_ALLOWED_ROOT</code> to change this root.</div>
 </div>
 
 <form method="POST" action="{{ url_for('eraser.run') }}" class="card p-4"
       onsubmit="return confirm('Permanently erase the listed paths?');">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
   <h6 class="text-uppercase text-muted small mb-2" style="letter-spacing:1px">What to erase</h6>
   <div class="mb-1">

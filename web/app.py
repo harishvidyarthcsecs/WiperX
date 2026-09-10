@@ -26,8 +26,10 @@ import os
 import logging
 import secrets
 
-from flask import Flask
+from flask import Flask, render_template
 from flask_login import LoginManager
+from flask_wtf import CSRFProtect
+from werkzeug.exceptions import HTTPException
 
 # Load a local .env before anything reads os.environ. No-op if unavailable.
 try:
@@ -93,6 +95,12 @@ def create_app(config_override: dict = None) -> Flask:
     if config_override:
         app.config.update(config_override)
 
+    # ── CSRF protection ──
+    # Every state-changing POST form carries {{ csrf_token() }}; the two JS
+    # fetch() POSTs send it via the X-CSRFToken header. Tests disable this with
+    # WTF_CSRF_ENABLED=False (see tests/conftest.py).
+    CSRFProtect(app)
+
     # ── Flask-Login ──
     login_manager = LoginManager()
     login_manager.init_app(app)
@@ -123,5 +131,23 @@ def create_app(config_override: dict = None) -> Flask:
     app.register_blueprint(reports_bp, url_prefix="/reports")
     app.register_blueprint(eraser_bp, url_prefix="/eraser")
     app.register_blueprint(recovery_bp, url_prefix="/recovery")
+
+    # ── Error handlers (no stack traces leak to the client) ──
+    @app.errorhandler(404)
+    def _not_found(_err):
+        return render_template("errors/404.html"), 404
+
+    @app.errorhandler(500)
+    def _server_error(_err):
+        return render_template("errors/500.html"), 500
+
+    @app.errorhandler(Exception)
+    def _unhandled(err):
+        if isinstance(err, HTTPException):
+            return err  # 404/403/... keep their own handling
+        if app.debug:
+            raise err  # let the debugger surface it in development
+        logger.exception("Unhandled exception")
+        return render_template("errors/500.html"), 500
 
     return app

@@ -13,18 +13,38 @@ from web.app import create_app
 
 
 @pytest.fixture
-def app():
+def app(tmp_path_factory):
+    # A real, isolated sandbox root so the fail-closed eraser/recovery checks
+    # (web/blueprints/_fsroot.py) are deterministic in tests.
+    sandbox = tmp_path_factory.mktemp("fsroot")
     application = create_app({
         "TESTING": True,
         "SECRET_KEY": "test-secret",
         "WTF_CSRF_ENABLED": False,
+        "ERASE_ALLOWED_ROOT": str(sandbox),
+        "RECOVER_ALLOWED_ROOT": str(sandbox),
     })
+    application.config["FSROOT_SANDBOX"] = str(sandbox)
     return application
 
 
 @pytest.fixture
 def client(app):
     return app.test_client()
+
+
+@pytest.fixture
+def csrf_client(tmp_path_factory):
+    """A client with CSRF protection left ON (for negative tests)."""
+    sandbox = tmp_path_factory.mktemp("fsroot_csrf")
+    application = create_app({
+        "TESTING": True,
+        "SECRET_KEY": "test-secret",
+        "WTF_CSRF_ENABLED": True,
+        "ERASE_ALLOWED_ROOT": str(sandbox),
+        "RECOVER_ALLOWED_ROOT": str(sandbox),
+    })
+    return application.test_client()
 
 
 def _login(client, username, password):

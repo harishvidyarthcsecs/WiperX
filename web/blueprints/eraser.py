@@ -12,40 +12,42 @@ Safety:
     resolve inside it; otherwise the request is rejected.
 """
 
-import os
 import platform
 from pathlib import Path
 
 from flask import (
-    Blueprint, render_template, request, redirect, url_for, flash, current_app
+    Blueprint, render_template, request, redirect, url_for, flash
 )
 from flask_login import login_required, current_user
 
 from core.audit_logger import log_event
 from core.eraser_file import service
+from web.blueprints._fsroot import allowed_root, path_within_root
 
 eraser_bp = Blueprint("eraser", __name__)
 
 
 def _allowed_root():
-    root = os.environ.get("WIPERX_ERASE_ALLOWED_ROOT") or current_app.config.get(
-        "ERASE_ALLOWED_ROOT"
+    """The erase sandbox root - always a real directory (fails closed)."""
+    return allowed_root(
+        "WIPERX_ERASE_ALLOWED_ROOT", config_keys=("ERASE_ALLOWED_ROOT",)
     )
-    return Path(root).resolve() if root else None
 
 
 def _paths_ok(paths):
     root = _allowed_root()
-    if root is None:
-        return True, None
     for p in paths:
-        try:
-            rp = Path(p).resolve()
-        except OSError:
-            return False, f"Cannot resolve path: {p}"
-        if root not in rp.parents and rp != root:
-            return False, f"Path outside allowed root ({root}): {p}"
+        ok, reason = path_within_root(p, root)
+        if not ok:
+            return False, reason
     return True, None
+
+
+def _int(value, default):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 
 @eraser_bp.route("/", methods=["GET"])
@@ -71,7 +73,7 @@ def run():
     raw = request.form.get("paths", "")
     paths = [line.strip() for line in raw.splitlines() if line.strip()]
     recursive = request.form.get("recursive") == "on"
-    passes = max(1, int(request.form.get("passes", 1)))
+    passes = max(1, _int(request.form.get("passes", 1), 1))
     zero_final = request.form.get("zero_final", "on") == "on"
     wipe_free_mount = request.form.get("wipe_free_mount", "").strip() or None
     fstrim_after = request.form.get("fstrim_after") == "on"
@@ -81,7 +83,10 @@ def run():
         flash("Provide at least one path, or a free-space mount point.", "warning")
         return redirect(url_for("eraser.index"))
 
-    ok, err = _paths_ok(paths)
+    check_paths = list(paths)
+    if wipe_free_mount:
+        check_paths.append(wipe_free_mount)
+    ok, err = _paths_ok(check_paths)
     if not ok:
         flash(err, "danger")
         return redirect(url_for("eraser.index"))

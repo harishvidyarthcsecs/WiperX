@@ -118,20 +118,44 @@ def _all_report_files():
         yield from CASES_DIR.glob("**/case_report.json")
 
 
-def _safe_under(base: Path, relpath: str) -> Path:
-    target = (base / relpath).resolve()
-    if not str(target).startswith(str(base.resolve())):
-        abort(404)
-    if not target.exists():
-        abort(404)
-    return target
+def _under(root: Path, relpath: str):
+    """Resolve ``relpath`` under ``root``; None if it escapes or is missing."""
+    candidate = (root / relpath).resolve()
+    try:
+        candidate.relative_to(root.resolve())
+    except ValueError:
+        return None
+    if not candidate.exists():
+        return None
+    return candidate
 
 
 def _resolve(relpath: str) -> Path:
-    """Accept a path under reports/ or a 'cases/<...>' recovery report."""
-    if relpath.replace("\\", "/").startswith("cases/"):
-        return _safe_under(_ROOT, relpath)
-    return _safe_under(REPORTS_DIR, relpath)
+    """Resolve a download/view target to a file under reports/ or cases/ only.
+
+    Rejects absolute paths, any '..' segment, dotfiles, and anything routed
+    through a 'keys/' directory. 'cases/<...>' is served from CASES_DIR (never
+    the repo root), everything else from REPORTS_DIR.
+    """
+    norm = relpath.replace("\\", "/")
+    parts = [p for p in norm.split("/") if p not in ("", ".")]
+    if (
+        not parts
+        or Path(norm).is_absolute()
+        or ".." in parts
+        or "keys" in parts
+        or parts[-1].startswith(".")
+    ):
+        abort(404)
+
+    if parts[0] == "cases":
+        target = _under(CASES_DIR, "/".join(parts[1:]))
+    else:
+        target = _under(REPORTS_DIR, "/".join(parts))
+
+    if target is None:
+        abort(404)
+    return target
 
 
 # --------------------------------------------------------------------------- #
@@ -159,8 +183,11 @@ def download(filename):
 @login_required
 def view(filename):
     path = _resolve(filename)
-    with open(path) as f:
-        raw = json.load(f)
+    try:
+        with open(path) as f:
+            raw = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        abort(404)
     sig = report_signer.verify_file(str(path))
     return render_template(
         "reports/view.html",

@@ -30,12 +30,20 @@ def _report_counts() -> dict:
     return counts
 
 
+def _mtime(path) -> float:
+    """st_mtime, or 0 if the file vanished between glob and stat."""
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
 def _recent_reports(limit: int = 5) -> list:
     """Newest JSON reports + recovery cases, each with a signature verdict."""
     entries = []
     if REPORTS_DIR.exists():
         files = sorted(REPORTS_DIR.glob("**/*.json"),
-                       key=lambda p: p.stat().st_mtime, reverse=True)[:limit]
+                       key=_mtime, reverse=True)[:limit]
         for f in files:
             v = report_signer.verify_file(str(f))
             entries.append({

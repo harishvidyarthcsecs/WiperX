@@ -27,13 +27,14 @@ from pathlib import Path
 
 from flask import (
     Blueprint, render_template, request, redirect, url_for, flash, session,
-    Response, stream_with_context, jsonify, send_file, abort, current_app,
+    Response, stream_with_context, jsonify, send_file, abort,
 )
 from flask_login import login_required, current_user
 
 from core import report_signer
 from core.audit_logger import log_event
 from core.recovery import service
+from web.blueprints._fsroot import allowed_root, path_within_root
 from web.models import UserRole
 
 recovery_bp = Blueprint("recovery", __name__)
@@ -47,10 +48,10 @@ _MODES = ("full", "carve-only", "fs-only")
 
 
 def _allowed_root():
-    root = os.environ.get("WIPERX_RECOVER_ALLOWED_ROOT") or current_app.config.get(
-        "RECOVER_ALLOWED_ROOT"
+    """The recovery-source sandbox root - always a real directory (fails closed)."""
+    return allowed_root(
+        "WIPERX_RECOVER_ALLOWED_ROOT", config_keys=("RECOVER_ALLOWED_ROOT",)
     )
-    return Path(root).resolve() if root else None
 
 
 def _source_ok(source: str):
@@ -61,14 +62,10 @@ def _source_ok(source: str):
         return False, "Only an administrator may recover directly from a device."
     if not os.path.exists(source):
         return False, f"Source does not exist: {source}"
-    root = _allowed_root()
-    if root is not None and not source.startswith("/dev/"):
-        try:
-            rp = Path(source).resolve()
-        except OSError:
-            return False, f"Cannot resolve path: {source}"
-        if root not in rp.parents and rp != root:
-            return False, f"Path outside allowed root ({root}): {source}"
+    if not source.startswith("/dev/"):
+        ok, reason = path_within_root(source, _allowed_root())
+        if not ok:
+            return False, reason
     return True, None
 
 

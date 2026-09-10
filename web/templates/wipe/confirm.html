@@ -33,6 +33,7 @@
             <div class="card-header"><strong>Double Confirmation Required</strong></div>
             <div class="card-body">
                 <form method="POST" action="{{ url_for('wipe.confirm') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="disk_id" value="{{ disk_id }}">
                     <input type="hidden" name="machine_id" value="{{ machine_id }}">
 

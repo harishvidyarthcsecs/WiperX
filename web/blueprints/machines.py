@@ -10,6 +10,13 @@ from core.audit_logger import log_event
 machines_bp = Blueprint("machines", __name__)
 
 
+def _int(value, default):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _require_admin():
     if not current_user.can("manage_machines"):
         flash("Access denied: Admin role required.", "danger")
@@ -35,6 +42,12 @@ def add():
         machine_id = str(uuid.uuid4())[:8]
         conn_type = request.form.get("connection_type", "ssh")
 
+        ssh_port = _int(request.form.get("ssh_port", 22), None)
+        winrm_port = _int(request.form.get("winrm_port", 5986), None)
+        if ssh_port is None or winrm_port is None:
+            flash("Invalid port number.", "danger")
+            return render_template("machines/add.html")
+
         machine = RemoteMachine(
             machine_id=machine_id,
             hostname=request.form.get("hostname", "").strip(),
@@ -42,9 +55,9 @@ def add():
             connection_type=conn_type,
             ssh_username=request.form.get("ssh_username", ""),
             ssh_key_path=request.form.get("ssh_key_path", ""),
-            ssh_port=int(request.form.get("ssh_port", 22)),
+            ssh_port=ssh_port,
             winrm_username=request.form.get("winrm_username", ""),
-            winrm_port=int(request.form.get("winrm_port", 5986)),
+            winrm_port=winrm_port,
             description=request.form.get("description", ""),
         )
 
