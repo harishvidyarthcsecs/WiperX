@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_components/path_picker.html" import pick_button, picker_modal %}
 {% block title %}Recover{% endblock %}
 
 {% block content %}
@@ -22,15 +23,18 @@
                 <form method="POST" action="{{ url_for('recovery.index') }}">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="mb-3">
-                        <label class="form-label">Source (block device or image file)</label>
-                        <input type="text" name="source" class="form-control"
+                        <div class="d-flex justify-content-between align-items-end">
+                            <label class="form-label">Source (block device or image file)</label>
+                            {{ pick_button('#recover-source', 'set-value', 'Browse image…') }}
+                        </div>
+                        <input type="text" name="source" id="recover-source" class="form-control"
                                placeholder="/path/to/disk.img  or  /dev/sdX" required>
                         <div class="form-text">
                             The source is opened <strong>read-only</strong>. Recovering from a
-                            <code>/dev/*</code> device requires the administrator role.
-                            {% if allowed_root %}
-                            <br>Image sources must live under <code>{{ allowed_root }}</code>.
-                            {% endif %}
+                            <code>/dev/*</code> device requires the administrator role and must be
+                            typed in directly &mdash; <em>Browse image&hellip;</em> only walks
+                            {% if allowed_root %}<code>{{ allowed_root }}</code>{% else %}the
+                            server's sandbox root{% endif %}.
                         </div>
                     </div>
 
@@ -99,4 +103,6 @@
         </div>
     </div>
 </div>
+
+{{ picker_modal() }}
 {% endblock %}

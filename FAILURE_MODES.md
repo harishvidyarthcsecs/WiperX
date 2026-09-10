@@ -210,6 +210,17 @@ system/mounted safety matrix, failed-command `RuntimeError`),
 no `done` · SSE queue collision (409) · `pending_wipe` replay ·
 `WIPERX_STATE_DIR` store persistence.
 
+**Covered in Part C** (`tests/test_browse.py`): `/browse/list` listing shape +
+dirs-first ordering · `..` rejection · sandbox-root confinement (403) ·
+wipe-permission gate (viewer → 403).
+
+**Pre-existing flaky pair — order/timing dependent, NOT introduced by A3 or
+Part C** (reproduced on a clean tree): `tests/test_recovery.py::
+test_recovery_case_view_via_web` (full-run carve yields 0 files though it
+passes in isolation) and `::test_random_filler_yields_no_false_positives`
+(flaps between runs). Root cause not yet isolated — likely global carver /
+`PIL` state left by an earlier test (cf. RC-12). Triage in A4.
+
 **Known gap — no coverage yet** (added in A7):
 missing-`WIPERX_SECRET_KEY` hard-fail ·
 `reports.py` `cases/..` traversal to `keys/` · login open-redirect ·

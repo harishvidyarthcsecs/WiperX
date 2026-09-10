@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_components/path_picker.html" import pick_button, picker_modal %}
 {% block title %}Secure File Eraser{% endblock %}
 
 {% block content %}
@@ -19,10 +20,14 @@ Each file is overwritten, truncated, renamed several times, then unlinked.</p>
 
   <h6 class="text-uppercase text-muted small mb-2" style="letter-spacing:1px">What to erase</h6>
   <div class="mb-1">
-    <label class="form-label">Paths (one per line &mdash; files or folders)</label>
+    <div class="d-flex justify-content-between align-items-end">
+      <label class="form-label">Paths (one per line &mdash; files or folders)</label>
+      {{ pick_button('[name="paths"]', 'append-lines', 'Browse…') }}
+    </div>
     <textarea name="paths" rows="6" class="form-control" placeholder="/data/case42/notes.txt&#10;/data/case42/photos"></textarea>
     <small class="text-muted d-block mt-1">One file or folder per line. Folders are only
-      touched when <em>Recurse into folders</em> below is on.</small>
+      touched when <em>Recurse into folders</em> below is on. <em>Browse&hellip;</em> walks the
+      server's filesystem, confined to <code>{{ allowed_root }}</code>.</small>
   </div>
   <div class="form-check mb-4">
     <input class="form-check-input" type="checkbox" name="recursive" id="rc" checked>
@@ -59,7 +64,10 @@ Each file is overwritten, truncated, renamed several times, then unlinked.</p>
   <h6 class="text-uppercase text-muted small mb-2" style="letter-spacing:1px">Free space (optional)</h6>
   <div class="row g-3">
     <div class="col-md-6">
-      <label class="form-label">Also wipe free space on mount</label>
+      <div class="d-flex justify-content-between align-items-end">
+        <label class="form-label">Also wipe free space on mount</label>
+        {{ pick_button('#fsmount', 'set-value', 'Browse…') }}
+      </div>
       <input type="text" name="wipe_free_mount" id="fsmount" class="form-control" placeholder="/mnt/evidence">
       <small class="text-muted d-block mt-1">After erasing, fills every free block on this
         filesystem with random data then zeros, then deletes the filler &mdash; this overwrites
@@ -86,6 +94,8 @@ Each file is overwritten, truncated, renamed several times, then unlinked.</p>
     <i class="bi bi-eraser"></i> Erase &amp; issue certificate
   </button>
 </form>
+
+{{ picker_modal() }}
 
 {% if is_linux %}
 <script>

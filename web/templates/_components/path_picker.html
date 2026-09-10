@@ -1,0 +1,212 @@
+{#
+  path_picker.html - server-filesystem location picker (vanilla JS).
+
+  Usage in a page template:
+
+    {% from "_components/path_picker.html" import pick_button, picker_modal %}
+
+    {{ pick_button('[name="paths"]', 'append-lines', 'Browse…') }}
+    {{ pick_button('#fsmount', 'set-value', 'Browse…') }}
+    ...
+    {{ picker_modal() }}   {# once per page, near the end of the content block #}
+
+  - mode 'set-value'    : clicking a file, or "Use this folder", puts the single
+                          absolute path into the target <input>.
+  - mode 'append-lines' : checked entries / "Use this folder" are appended as
+                          newline-separated absolute paths to the target
+                          <textarea> (de-duplicated).
+
+  Backend: GET /browse/list?path=<abs> (web/blueprints/browse.py), confined to
+  the shared filesystem sandbox. Requires the "wipe" permission.
+#}
+
+{% macro pick_button(target, mode, label='Browse') %}
+<button type="button" class="btn btn-outline-secondary btn-sm wx-pick-btn"
+        data-pick-target="{{ target }}" data-pick-mode="{{ mode }}">
+  <i class="bi bi-folder2-open"></i> {{ label }}
+</button>
+{% endmacro %}
+
+{% macro picker_modal() %}
+<div class="modal fade" id="wxPathPicker" tabindex="-1" aria-hidden="true"
+     aria-labelledby="wxPathPickerTitle">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="wxPathPickerTitle">
+          <i class="bi bi-hdd"></i> Pick a location on the server
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <button type="button" class="btn btn-sm btn-outline-secondary wx-pick-up" disabled>
+            <i class="bi bi-arrow-90deg-up"></i> Up
+          </button>
+          <code class="wx-pick-crumb small text-truncate flex-grow-1"></code>
+        </div>
+        <div class="list-group wx-pick-list" style="max-height: 45vh; overflow-y: auto;"></div>
+        <p class="wx-pick-hint text-muted small mt-2 mb-0"></p>
+      </div>
+      <div class="modal-footer">
+        <span class="wx-pick-count text-muted small me-auto"></span>
+        <button type="button" class="btn btn-outline-primary wx-pick-use-folder">
+          Use this folder
+        </button>
+        <button type="button" class="btn btn-primary wx-pick-add" style="display:none;">
+          Add selected
+        </button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var modalEl = document.getElementById('wxPathPicker');
+  if (!modalEl || typeof bootstrap === 'undefined') { return; }
+
+  var bsModal = new bootstrap.Modal(modalEl);
+  var listEl = modalEl.querySelector('.wx-pick-list');
+  var crumbEl = modalEl.querySelector('.wx-pick-crumb');
+  var upBtn = modalEl.querySelector('.wx-pick-up');
+  var useFolderBtn = modalEl.querySelector('.wx-pick-use-folder');
+  var addBtn = modalEl.querySelector('.wx-pick-add');
+  var hintEl = modalEl.querySelector('.wx-pick-hint');
+  var countEl = modalEl.querySelector('.wx-pick-count');
+
+  var state = { mode: null, target: null, cwd: null, parent: null, checked: {} };
+
+  function esc(s) {
+    return String(s).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  }
+
+  function fmtSize(n) {
+    if (n === null || n === undefined) { return ''; }
+    var u = ['B', 'KB', 'MB', 'GB', 'TB'], i = 0;
+    while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+    return n.toFixed(i ? 1 : 0) + ' ' + u[i];
+  }
+
+  function targetEl() { return document.querySelector(state.target); }
+
+  function refreshCount() {
+    var n = Object.keys(state.checked).length;
+    countEl.textContent = n ? (n + ' selected') : '';
+  }
+
+  function render(data) {
+    state.cwd = data.cwd;
+    state.parent = data.parent;
+    crumbEl.textContent = data.cwd;
+    upBtn.disabled = !data.parent;
+
+    var multi = state.mode === 'append-lines';
+    addBtn.style.display = multi ? '' : 'none';
+    hintEl.textContent = multi
+      ? 'Tick files or folders, then "Add selected". Or open a folder and "Use this folder".'
+      : 'Open a folder to browse. Click a file, or "Use this folder", to choose it.';
+
+    var rows = '';
+    (data.entries || []).forEach(function (e) {
+      var cb = multi
+        ? '<input class="form-check-input me-2 wx-pick-cb" type="checkbox" value="' +
+          esc(e.path) + '"' + (state.checked[e.path] ? ' checked' : '') + '>'
+        : '';
+      var icon = e.is_dir ? 'bi-folder-fill text-warning' : 'bi-file-earmark';
+      rows +=
+        '<div class="list-group-item d-flex align-items-center gap-2" style="background:transparent;">' +
+        cb +
+        '<i class="bi ' + icon + '"></i>' +
+        '<span class="wx-pick-name flex-grow-1" data-path="' + esc(e.path) + '" ' +
+        'data-dir="' + (e.is_dir ? '1' : '0') + '" ' +
+        'style="cursor:' + (e.is_dir ? 'pointer' : 'default') + ';">' + esc(e.name) + '</span>' +
+        '<small class="text-muted">' + (e.is_dir ? '' : fmtSize(e.size)) + '</small>' +
+        '</div>';
+    });
+    listEl.innerHTML = rows || '<div class="text-muted p-2">(empty directory)</div>';
+    refreshCount();
+  }
+
+  function load(path) {
+    var q = path ? ('?path=' + encodeURIComponent(path)) : '';
+    listEl.innerHTML = '<div class="text-muted p-2">Loading…</div>';
+    fetch('/browse/list' + q, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (res) {
+        if (!res.ok) {
+          listEl.innerHTML = '<div class="text-danger p-2">' + esc(res.j.error || 'Error') + '</div>';
+          return;
+        }
+        render(res.j);
+      })
+      .catch(function () {
+        listEl.innerHTML = '<div class="text-danger p-2">Request failed.</div>';
+      });
+  }
+
+  function applyValue(path) {
+    var el = targetEl();
+    if (!el) { return; }
+    el.value = path;
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  function appendLines(paths) {
+    var el = targetEl();
+    if (!el) { return; }
+    var cur = (el.value || '').split(/\r?\n/).map(function (s) { return s.trim(); })
+      .filter(Boolean);
+    paths.forEach(function (p) { if (cur.indexOf(p) < 0) { cur.push(p); } });
+    el.value = cur.join('\n');
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  listEl.addEventListener('click', function (ev) {
+    var name = ev.target.closest('.wx-pick-name');
+    if (!name) { return; }
+    if (name.dataset.dir === '1') {
+      load(name.dataset.path);
+    } else if (state.mode === 'set-value') {
+      applyValue(name.dataset.path);
+      bsModal.hide();
+    }
+  });
+
+  listEl.addEventListener('change', function (ev) {
+    var cb = ev.target.closest('.wx-pick-cb');
+    if (!cb) { return; }
+    if (cb.checked) { state.checked[cb.value] = 1; } else { delete state.checked[cb.value]; }
+    refreshCount();
+  });
+
+  upBtn.addEventListener('click', function () { if (state.parent) { load(state.parent); } });
+
+  useFolderBtn.addEventListener('click', function () {
+    if (!state.cwd) { return; }
+    if (state.mode === 'append-lines') { appendLines([state.cwd]); }
+    else { applyValue(state.cwd); }
+    bsModal.hide();
+  });
+
+  addBtn.addEventListener('click', function () {
+    var paths = Object.keys(state.checked);
+    if (paths.length) { appendLines(paths); }
+    bsModal.hide();
+  });
+
+  document.addEventListener('click', function (ev) {
+    var btn = ev.target.closest('.wx-pick-btn');
+    if (!btn) { return; }
+    state.mode = btn.dataset.pickMode;
+    state.target = btn.dataset.pickTarget;
+    state.checked = {};
+    load(null);
+    bsModal.show();
+  });
+})();
+</script>
+{% endmacro %}
