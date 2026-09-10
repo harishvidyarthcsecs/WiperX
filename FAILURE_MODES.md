@@ -62,12 +62,12 @@ Work is tracked in `plans/` and delivered in phases A1–A7 (see the approved pl
 
 | ID | Symptom | Trigger | Location | Sev | Status |
 |----|---------|---------|----------|-----|--------|
-| WEB-01 | Execute-page spinner hangs forever; SSE stream never ends | Report writer raises (disk full, reportlab) after `execute_wipe` returns — `run_in_thread` has no try/except, so `{"type":"done"}` is never queued and `stream_logs` loops on 30 s heartbeats | `web/blueprints/wipe.py:112-171` | high | open (A3) |
-| WEB-02 | First live stream orphaned, loops emitting heartbeats | Same account starts a second wipe/recovery — queue dict keyed by `current_user.id` is overwritten | `web/blueprints/wipe.py:22,108,188`; `web/blueprints/recovery.py:44,151,194` | med | open (A3) |
-| WEB-03 | Wipe **replay** on the same disk | Refresh / re-POST `/wipe/run`, or two tabs — `session["pending_wipe"]` is never cleared | `web/blueprints/wipe.py:54,104` | high | open (A3) |
+| WEB-01 | Execute-page spinner hangs forever; SSE stream never ends | Report writer raises (disk full, reportlab) after `execute_wipe` returns — `run_in_thread` has no try/except, so `{"type":"done"}` is never queued and `stream_logs` loops on 30 s heartbeats | `web/blueprints/wipe.py:112-171` | high | **fixed** (A3) — whole `run_in_thread` body wrapped; any exception queues `{"type":"done","success":False,"error":…}`; `tests/test_web_robustness.py::test_thread_death_still_queues_done` |
+| WEB-02 | First live stream orphaned, loops emitting heartbeats | Same account starts a second wipe/recovery — queue dict keyed by `current_user.id` is overwritten | `web/blueprints/wipe.py:22,108,188`; `web/blueprints/recovery.py:44,151,194` | med | **mitigated** (A3) — `/wipe/run` + `/recovery/run` return `409` JSON when a queue already exists for the user id (no multiplexing); `tests/test_web_robustness.py::test_second_wipe_run_returns_409`, `::test_recovery_second_run_returns_409` |
+| WEB-03 | Wipe **replay** on the same disk | Refresh / re-POST `/wipe/run`, or two tabs — `session["pending_wipe"]` is never cleared | `web/blueprints/wipe.py:54,104` | high | **fixed** (A3) — `session.pop("pending_wipe", None)` at the top of `run_wipe()`; re-POST hits the 400 branch; `tests/test_web_robustness.py::test_pending_wipe_cleared_after_run` |
 | WEB-04 | `/wipe/stream/<session_id>` ignores its URL arg (uses `current_user.id`) | — | `web/blueprints/wipe.py:179,188` | low | open (A3) |
 | WEB-05 | Role change mid-flight not re-checked inside the worker thread | Role revoked after `/wipe/run` accepted | `web/blueprints/wipe.py:101` vs `:112` | low | open (A3) |
-| WEB-06 | Machines added on one worker invisible on others; all state lost on restart; random per-worker demo password + secret key (debug/testing) | Any process restart or multi-worker (`gunicorn -w 4`) deploy | `web/models.py:115-134,159` (in-memory `_USER_STORE` / `_MACHINE_STORE`, evaluated at import) | high | open (A3) |
+| WEB-06 | Machines added on one worker invisible on others; all state lost on restart; random per-worker demo password + secret key (debug/testing) | Any process restart or multi-worker (`gunicorn -w 4`) deploy | `web/models.py:115-134,159` (in-memory `_USER_STORE` / `_MACHINE_STORE`, evaluated at import) | high | **mitigated** (A3) — opt-in `WIPERX_STATE_DIR`: `_PersistentDict` flushes both stores to `users.json` / `machines.json` on every mutation and reloads at import (seeded trio + hashes persisted so passwords stay stable); default without the env var is unchanged pure-in-memory. Single shared JSON file — not safe for concurrent writers on network storage; a real DB is still the production answer. `tests/test_web_robustness.py::test_state_dir_persists_machines`; README caveat added |
 | WEB-07 | `create_app_factory()` (gunicorn) does **not** run the `WIPERX_SECRET_KEY` hard-fail pre-check that `run.py __main__` does | Missing secret key under gunicorn | `web/app.py:71-82` vs `run.py` | med | open (A3) |
 | WEB-08 | `machines.test_connection` returns HTTP **200** on hard errors (missing SSH key, DNS failure) | Any connection error | `web/blueprints/machines.py:113-116` | low | open (A3) |
 | WEB-09 | `sys.path` grows unbounded (one `insert` per request) | Every `/machines/test/<id>` call | `web/blueprints/machines.py:86` | low | open (A3) |
@@ -206,9 +206,12 @@ system/mounted safety matrix, failed-command `RuntimeError`),
 `tests/test_fixes_pendrive_analysis.py` (scanner misclassification regressions),
 `tests/test_web.py` (RBAC 403 / 400 / 404 smoke).
 
+**Covered in A3** (`tests/test_web_robustness.py`): `wipe.py` thread dying with
+no `done` · SSE queue collision (409) · `pending_wipe` replay ·
+`WIPERX_STATE_DIR` store persistence.
+
 **Known gap — no coverage yet** (added in A7):
-missing-`WIPERX_SECRET_KEY` hard-fail · multi-worker in-memory-store divergence ·
-SSE queue collision / `wipe.py` thread dying with no `done` ·
+missing-`WIPERX_SECRET_KEY` hard-fail ·
 `reports.py` `cases/..` traversal to `keys/` · login open-redirect ·
 `int()`/`stat()` → 500 in `eraser`/`machines`/`dashboard` ·
 unsized-disk → verification-FAIL downgrade · `audit_logger` import-time `mkdir`

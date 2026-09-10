@@ -13,7 +13,9 @@ from flask import (
     url_for, flash, session, Response, stream_with_context, jsonify
 )
 from flask_login import login_required, current_user
-from core.execution_manager import ExecutionManager, ExecutionMode, RemoteConnectionConfig, WipeRequest
+from core.execution_manager import (
+    ExecutionManager, ExecutionMode, RemoteConnectionConfig, WipeRequest
+)
 from core.audit_logger import log_event
 
 wipe_bp = Blueprint("wipe", __name__)
@@ -105,70 +107,87 @@ def run_wipe():
     if not pending:
         return jsonify({"error": "No pending wipe"}), 400
 
+    # Consume the pending parameters once - a refresh / second tab / re-POST
+    # must not replay the wipe on the same disk (WEB-03).
+    session.pop("pending_wipe", None)
+
     session_id = current_user.id
+    if session_id in _wipe_queues:
+        # A live wipe stream for this account is still open; a second run would
+        # overwrite its queue and orphan the first stream (WEB-02).
+        return jsonify(
+            {"error": "An operation is already running for this account."}
+        ), 409
+
     log_queue = queue.Queue()
     _wipe_queues[session_id] = log_queue
 
     def run_in_thread():
-        from web.models import get_machine_store
-        manager = ExecutionManager()
+        try:
+            from web.models import get_machine_store
+            manager = ExecutionManager()
 
-        machine_id = pending["machine_id"]
-        exec_mode = ExecutionMode.LOCAL
-        remote_config = None
+            machine_id = pending["machine_id"]
+            exec_mode = ExecutionMode.LOCAL
+            remote_config = None
 
-        if machine_id != "local":
-            store = get_machine_store()
-            machine = store.get(machine_id)
-            if machine:
-                if machine.connection_type == "ssh":
-                    exec_mode = ExecutionMode.REMOTE_SSH
-                    remote_config = RemoteConnectionConfig(
-                        hostname=machine.hostname,
-                        mode=exec_mode,
-                        ssh_username=machine.ssh_username,
-                        ssh_key_path=machine.ssh_key_path,
-                        ssh_port=machine.ssh_port,
-                    )
-                else:
-                    exec_mode = ExecutionMode.REMOTE_WINRM
-                    remote_config = RemoteConnectionConfig(
-                        hostname=machine.hostname,
-                        mode=exec_mode,
-                        winrm_username=machine.winrm_username,
-                        winrm_port=machine.winrm_port,
-                    )
+            if machine_id != "local":
+                store = get_machine_store()
+                machine = store.get(machine_id)
+                if machine:
+                    if machine.connection_type == "ssh":
+                        exec_mode = ExecutionMode.REMOTE_SSH
+                        remote_config = RemoteConnectionConfig(
+                            hostname=machine.hostname,
+                            mode=exec_mode,
+                            ssh_username=machine.ssh_username,
+                            ssh_key_path=machine.ssh_key_path,
+                            ssh_port=machine.ssh_port,
+                        )
+                    else:
+                        exec_mode = ExecutionMode.REMOTE_WINRM
+                        remote_config = RemoteConnectionConfig(
+                            hostname=machine.hostname,
+                            mode=exec_mode,
+                            winrm_username=machine.winrm_username,
+                            winrm_port=machine.winrm_port,
+                        )
 
-        def log_cb(msg):
-            log_queue.put({"type": "log", "message": msg})
+            def log_cb(msg):
+                log_queue.put({"type": "log", "message": msg})
 
-        wipe_request = WipeRequest(
-            disk_identifier=pending["disk_id"],
-            confirmed_disk_name=pending["confirmed_name"],
-            mode=exec_mode,
-            remote_config=remote_config,
-            log_callback=log_cb,
-            force_unmount=pending.get("force_unmount", False),
-        )
+            wipe_request = WipeRequest(
+                disk_identifier=pending["disk_id"],
+                confirmed_disk_name=pending["confirmed_name"],
+                mode=exec_mode,
+                remote_config=remote_config,
+                log_callback=log_cb,
+                force_unmount=pending.get("force_unmount", False),
+            )
 
-        result = manager.execute_wipe(wipe_request)
+            result = manager.execute_wipe(wipe_request)
 
-        # Generate reports
-        from core.report_generator import ReportGenerator
-        reporter = ReportGenerator()
-        operator = pending.get("operator", "web")
-        json_path = reporter.generate_json_report(result, operator=operator)
-        pdf_path = reporter.generate_pdf_report(result, operator=operator)
-        cert_path = reporter.generate_signed_json_report(result, operator=operator)
+            # Generate reports
+            from core.report_generator import ReportGenerator
+            reporter = ReportGenerator()
+            operator = pending.get("operator", "web")
+            json_path = reporter.generate_json_report(result, operator=operator)
+            pdf_path = reporter.generate_pdf_report(result, operator=operator)
+            cert_path = reporter.generate_signed_json_report(result, operator=operator)
 
-        log_queue.put({
-            "type": "done",
-            "success": result.success,
-            "error": result.error,
-            "json_report": str(json_path),
-            "pdf_report": str(pdf_path) if pdf_path else None,
-            "signed_certificate": str(cert_path) if cert_path else None,
-        })
+            log_queue.put({
+                "type": "done",
+                "success": result.success,
+                "error": result.error,
+                "json_report": str(json_path),
+                "pdf_report": str(pdf_path) if pdf_path else None,
+                "signed_certificate": str(cert_path) if cert_path else None,
+            })
+        except Exception as exc:  # noqa: BLE001 - surface to the operator
+            # A report-writer error (disk full, reportlab) after execute_wipe
+            # returns must still terminate the SSE stream (WEB-01), else
+            # stream_logs loops forever on 30s heartbeats.
+            log_queue.put({"type": "done", "success": False, "error": str(exc)})
 
     thread = threading.Thread(target=run_in_thread, daemon=True)
     thread.start()

@@ -144,6 +144,13 @@ def run_recovery():
     case_dir = CASES_DIR / name
 
     session_id = current_user.id
+    if session_id in _recovery_queues:
+        # A live recovery stream for this account is still open; a second run
+        # would overwrite its queue and orphan the first stream (WEB-02).
+        return jsonify(
+            {"error": "An operation is already running for this account."}
+        ), 409
+
     log_queue = queue.Queue()
     _recovery_queues[session_id] = log_queue
 

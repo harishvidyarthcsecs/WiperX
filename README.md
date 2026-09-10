@@ -233,6 +233,7 @@ cp .env.example .env   # then edit .env with your values
 | `WIPERX_SSH_KEY_PATH` | No | Default SSH private key for remote Linux targets |
 | `WIPERX_WINRM_USER` / `WIPERX_WINRM_PASS` | No | Credentials for remote Windows (WinRM) targets |
 | `WIPERX_VERIFY_PUBKEY` | No | Trust anchor for `wiperx verify-report` |
+| `WIPERX_STATE_DIR` | No | Opt-in directory for JSON persistence of the demo user/machine stores (`users.json`, `machines.json`). Unset ⇒ in-memory, lost on restart and per-worker under gunicorn. See the caveat below |
 
 **No other `export` is required.** In particular:
 - **No `PYTHONPATH`** — both `cli/wiperx_cli.py` and `run.py` insert the repo root onto `sys.path` themselves at the top of the file, so `python3 -m cli.wiperx_cli ...` and `python run.py ...` work standalone from the repo root with a plain `pip install -r requirements.txt`.
@@ -317,6 +318,18 @@ python run.py --host 127.0.0.1 --port 5000         # add --debug to skip the sec
 ```
 
 Users: `admin` / `operator` / `viewer` — passwords come from `WIPERX_*_PASSWORD` env vars (a random one is generated and logged if unset). The in-memory store is demo-only; back it with a real database for anything beyond a lab.
+
+> **Multi-worker / restart caveat.** Without `WIPERX_STATE_DIR` (or a real
+> database) the user and machine stores live only in process memory: they reset
+> on every restart, and under `gunicorn -w N` each worker has its own copy — a
+> machine you register is visible only on the worker that served that POST, and
+> the random demo passwords / secret key differ per worker. Setting
+> `WIPERX_STATE_DIR=/path` makes both stores load from and flush to a shared
+> `users.json` / `machines.json` in that directory on every change (the seeded
+> user trio, hashes included, is persisted so passwords stay stable across
+> restarts). That single shared file is adequate for a single-host multi-worker
+> lab deployment; it is **not** safe for concurrent writers on shared/network
+> storage — use PostgreSQL for production.
 
 ### Running the web GUI with root (local disk scan / wipe)
 
