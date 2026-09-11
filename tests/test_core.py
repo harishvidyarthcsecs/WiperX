@@ -63,6 +63,127 @@ class TestDiskInfo:
 
 
 # ---------------------------------------------------------------------------
+# Disk Scanner - Linux fail-closed detection (A4: ENG-01 / ENG-02 / ENG-03)
+# ---------------------------------------------------------------------------
+
+class TestDiskScannerLinuxFailClosed:
+    @staticmethod
+    def _make_executor(
+        lsblk_out, root_cmd_result=None, root_cmd_error=None,
+        mount_cmd_result=None, mount_cmd_error=None,
+    ):
+        from unittest.mock import MagicMock
+        from core.disk_scanner import DiskScanner
+
+        def run_command(cmd, *a, **k):
+            if cmd == DiskScanner.LINUX_ROOT_CMD:
+                if root_cmd_error:
+                    raise root_cmd_error
+                return root_cmd_result
+            if cmd == DiskScanner.LINUX_MOUNT_CMD:
+                if mount_cmd_error:
+                    raise mount_cmd_error
+                return mount_cmd_result
+            return lsblk_out
+
+        executor = MagicMock()
+        executor.run_command.side_effect = run_command
+        return executor
+
+    def test_root_device_detection_failure_is_unknown_not_false(self):
+        """df/awk/tail unavailable -> is_system/is_mounted are None for every
+        disk, never silently False (ENG-01)."""
+        from core.disk_scanner import DiskScanner
+        from core.os_detector import OSType
+
+        lsblk = "sda\t0\tsata\t500000000000\tSamsung SSD\tSERIAL123\n"
+        executor = self._make_executor(
+            lsblk_out=lsblk,
+            root_cmd_error=RuntimeError("df: command not found"),
+            mount_cmd_result="/dev/sda1 / ext4 rw 0 0\n",
+        )
+        disks = DiskScanner(executor=executor, os_type=OSType.LINUX).scan()
+
+        assert len(disks) == 1
+        assert disks[0].is_system is None
+        assert disks[0].is_mounted is None
+
+    def test_mount_table_detection_failure_is_unknown_not_false(self):
+        """/proc/mounts unreadable -> same fail-closed behaviour (ENG-02)."""
+        from core.disk_scanner import DiskScanner
+        from core.os_detector import OSType
+
+        lsblk = "sda\t0\tsata\t500000000000\tSamsung SSD\tSERIAL123\n"
+        executor = self._make_executor(
+            lsblk_out=lsblk,
+            root_cmd_result="/dev/sda1\n",
+            mount_cmd_error=PermissionError("/proc/mounts: permission denied"),
+        )
+        disks = DiskScanner(executor=executor, os_type=OSType.LINUX).scan()
+
+        assert disks[0].is_system is None
+        assert disks[0].is_mounted is None
+
+    def test_successful_detection_still_flags_correctly(self):
+        """Sanity check: the normal (non-failure) path still yields real
+        booleans, not None, once detection succeeds."""
+        from core.disk_scanner import DiskScanner
+        from core.os_detector import OSType
+
+        lsblk = (
+            "sda\t0\tsata\t500000000000\tSystem Disk\tSER1\n"
+            "sdb\t0\tusb\t64000000000\tUSB Stick\tSER2\n"
+        )
+        executor = self._make_executor(
+            lsblk_out=lsblk,
+            root_cmd_result="/dev/sda1\n",
+            mount_cmd_result="/dev/sda1 / ext4 rw 0 0\n",
+        )
+        disks = DiskScanner(executor=executor, os_type=OSType.LINUX).scan()
+        by_name = {d.identifier: d for d in disks}
+
+        assert by_name["sda"].is_system is True
+        assert by_name["sda"].is_mounted is True
+        assert by_name["sdb"].is_system is False
+        assert by_name["sdb"].is_mounted is False
+
+    def test_exact_device_match_no_false_positive_substring(self):
+        """ENG-03: a device name must not falsely match a DIFFERENT disk's
+        partition just because it's a string prefix (e.g. "sd" is a prefix
+        of "/dev/sdb1") - exact base-device comparison, not substring `in`."""
+        from core.disk_scanner import DiskScanner
+        from core.os_detector import OSType
+
+        lsblk = (
+            "sd\t0\tsata\t500000000000\tContrived Disk\tSER1\n"
+            "sdb\t0\tsata\t1000000000000\tReal Disk\tSER2\n"
+        )
+        executor = self._make_executor(
+            lsblk_out=lsblk,
+            root_cmd_result="/dev/sdb1\n",
+            mount_cmd_result="/dev/sdb1 / ext4 rw 0 0\n",
+        )
+        disks = DiskScanner(executor=executor, os_type=OSType.LINUX).scan()
+        by_name = {d.identifier: d for d in disks}
+
+        assert by_name["sdb"].is_system is True
+        assert by_name["sdb"].is_mounted is True
+        assert by_name["sd"].is_system is False
+        assert by_name["sd"].is_mounted is False
+
+    def test_unsupported_os_scan_raises_value_error(self):
+        """Reconciles the ValueError/RuntimeError mismatch noted in
+        FAILURE_MODES.md section 10 - matches get_strategy's convention for
+        the same 'unsupported OS' condition."""
+        from core.disk_scanner import DiskScanner
+        from core.os_detector import OSType
+
+        scanner = DiskScanner(executor=None, os_type=OSType.UNSUPPORTED)
+        with pytest.raises(ValueError):
+            scanner.scan()
+
+
+# ---------------------------------------------------------------------------
 # Strategy Selection Tests
 # ---------------------------------------------------------------------------
 
@@ -169,6 +290,44 @@ class TestExecutionManagerSafety:
 
         assert result.success is False
         assert "SYSTEM DISK" in (result.error or "")
+
+    def test_unknown_safety_status_is_blocked(self):
+        """A disk whose system/mounted status could not be determined (None)
+        must be refused outright, never treated as safe (ENG-01/ENG-02)."""
+        from core.execution_manager import ExecutionManager, WipeRequest, ExecutionMode
+        from core.disk_scanner import DiskInfo
+        from unittest.mock import patch, MagicMock
+
+        manager = ExecutionManager()
+        mock_disk = DiskInfo(
+            identifier="sda",
+            model="Unknown-safety Disk",
+            is_system=None,
+            is_mounted=None,
+        )
+
+        with patch.object(manager, "_build_executor_and_detect_os") as mock_build, \
+             patch("core.execution_manager.DiskScanner") as mock_scanner_cls:
+
+            from core.os_detector import OSType
+            mock_executor = MagicMock()
+            mock_executor.close = MagicMock()
+            mock_build.return_value = (mock_executor, OSType.LINUX)
+
+            mock_scanner = MagicMock()
+            mock_scanner.scan.return_value = [mock_disk]
+            mock_scanner_cls.return_value = mock_scanner
+
+            with patch.object(manager, "_check_privileges"):
+                request = WipeRequest(
+                    disk_identifier="sda",
+                    confirmed_disk_name="sda",
+                    mode=ExecutionMode.LOCAL,
+                )
+                result = manager.execute_wipe(request)
+
+        assert result.success is False
+        assert "unknown safety status" in (result.error or "").lower()
 
     def test_name_mismatch_is_blocked(self):
         """Mismatched confirmation name should block wipe."""

@@ -210,6 +210,21 @@ class ExecutionManager:
                 )
             _log("[Safety Check 2] PASSED: Disk name confirmed.")
 
+            # --- Safety Check 2b: Detection integrity (ENG-01 / ENG-02) ---
+            # DiskScanner reports is_system/is_mounted as None when it could
+            # not actually determine them (root-device or mount-table lookup
+            # failed) rather than silently defaulting to False. Treat that as
+            # a hard block - an unknown disk is never safe to wipe.
+            if target_disk.is_system is None or target_disk.is_mounted is None:
+                raise PermissionError(
+                    f"SAFETY BLOCK: Could not reliably determine whether disk "
+                    f"'{target_disk.identifier}' is the system disk or "
+                    "currently mounted (the detection commands on the target "
+                    "failed or were unavailable). Refusing to wipe a disk of "
+                    "unknown safety status rather than risk the running OS or "
+                    "a live filesystem."
+                )
+
             # --- Safety Check 3: System disk ---
             _log("[Safety Check 3] Checking if disk is system disk...")
             if target_disk.is_system:

@@ -80,9 +80,9 @@ Work is tracked in `plans/` and delivered in phases A1–A7 (see the approved pl
 
 | ID | Symptom | Trigger | Location | Status |
 |----|---------|---------|----------|--------|
-| ENG-01 | **System disk not protected** — Safety Check 3 bypassed | `df` / `awk` / `tail` unavailable or fails → `_root_device` returns `None` → every disk gets `is_system=False` | `core/disk_scanner.py:103,223-229` | open (A4) — fail closed |
-| ENG-02 | **Mounted disk not flagged** — Safety Check 4 bypassed | `/proc/mounts` unreadable (non-Linux, container) → `_get_mounted_linux` returns `[]` | `core/disk_scanner.py:100,214-221` | open (A4) — fail closed |
-| ENG-03 | System-disk detection false positive/negative | Substring match: `name in root_device` — `sda` matches `/dev/sda1`; one device name a substring of another | `core/disk_scanner.py:183-186` | open (A4) — exact compare |
+| ENG-01 | **System disk not protected** — Safety Check 3 bypassed | `df` / `awk` / `tail` unavailable or fails → `_root_device` returns `None` → every disk gets `is_system=False` | `core/disk_scanner.py:103,223-229` | **fixed** (A4) — `is_system`/`is_mounted` are now `Optional[bool]`; a genuine detection failure sets `None` (never `False`), and `execution_manager.execute_wipe` refuses the wipe outright ("Safety Check 2b") when either is `None`; `tests/test_core.py::TestDiskScannerLinuxFailClosed::test_root_device_detection_failure_is_unknown_not_false`, `::test_unknown_safety_status_is_blocked` |
+| ENG-02 | **Mounted disk not flagged** — Safety Check 4 bypassed | `/proc/mounts` unreadable (non-Linux, container) → `_get_mounted_linux` returns `[]` | `core/disk_scanner.py:100,214-221` | **fixed** (A4) — same fail-closed `None` + refuse-on-unknown as ENG-01; `_get_mounted_linux` now returns `None` (not `[]`) on read failure; `tests/test_core.py::TestDiskScannerLinuxFailClosed::test_mount_table_detection_failure_is_unknown_not_false` |
+| ENG-03 | System-disk detection false positive/negative | Substring match: `name in root_device` — `sda` matches `/dev/sda1`; one device name a substring of another | `core/disk_scanner.py:183-186` | **fixed** (A4) — new `DiskScanner._base_device_name()` derives the exact whole-disk name from a `/dev/...` path (handles `sdX`, `nvmeXnY`, `mmcblkX` partition suffixes) and both `is_system`/`is_mounted` now compare equality against it, not `in`; `tests/test_core.py::TestDiskScannerLinuxFailClosed::test_exact_device_match_no_false_positive_substring` |
 | ENG-04 | Non-system Windows disks **always reported unmounted** | `is_mounted = is_system` hard-coded | `core/disk_scanner.py:282` | open (A4) — query `Get-Partition` |
 | ENG-05 | Windows system disk = "disk 0" assumption wrong | OS on a non-zero disk / Storage Spaces | `core/disk_scanner.py:271` | open (A4) |
 | ENG-06 | NVMe crypto-erase can hit the **wrong namespace** | `disk.identifier` not `nvme0n1` — command hard-codes `nvme0n1` | `core/strategies/__init__.py:289-292` | open (A4) — derive from identifier |
@@ -231,9 +231,13 @@ missing-`WIPERX_SECRET_KEY` hard-fail ·
 unsized-disk → verification-FAIL downgrade · `audit_logger` import-time `mkdir`
 failure.
 
-**Latent test mismatch**: `tests/test_core.py:124` expects `ValueError` for an
-unsupported OS, but `core/disk_scanner.py:135` raises `RuntimeError` — reconcile
-in A4.
+**Latent test mismatch — reconciled (A4)**: that note referred to
+`get_strategy`'s existing `ValueError` for an unsupported OS
+(`tests/test_core.py::test_unsupported_os_raises`); `core/disk_scanner.py`'s
+`DiskScanner.scan()` raised the inconsistent `RuntimeError` for the same
+condition with no test covering it. `scan()` now raises `ValueError` too,
+covered by `tests/test_core.py::TestDiskScannerLinuxFailClosed::
+test_unsupported_os_scan_raises_value_error`.
 
 ---
 

@@ -45,8 +45,12 @@ class DiskInfo:
         size_bytes : Size in bytes (0 if unknown)
         disk_type  : "HDD", "SSD", "NVMe", or "Unknown"
         bus_type   : "SATA", "USB", "NVMe", "SCSI", or "Unknown"
-        is_system  : True if this disk contains the running OS
-        is_mounted : True if any partition of this disk is currently mounted
+        is_system  : True if this disk contains the running OS; False if
+                     confirmed not to; None if this could not be determined
+                     (e.g. the root-device lookup failed) - callers MUST
+                     treat None as "unsafe to wipe", never as False.
+        is_mounted : True/False/None with the same fail-closed meaning as
+                     is_system, for whether any partition is mounted.
         raw        : Original raw line/output for debugging
     """
     identifier: str
@@ -56,8 +60,8 @@ class DiskInfo:
     size_bytes: int = 0
     disk_type: str = "Unknown"
     bus_type: str = "Unknown"
-    is_system: bool = False
-    is_mounted: bool = False
+    is_system: Optional[bool] = False
+    is_mounted: Optional[bool] = False
     raw: str = ""
     partitions: List[str] = field(default_factory=list)
     # Set when this DiskInfo represents a single partition / slice (e.g.
@@ -132,7 +136,9 @@ class DiskScanner:
         elif self.os_type == OSType.MACOS:
             return self._scan_macos()
         else:
-            raise RuntimeError(
+            # ValueError, not RuntimeError: matches core.strategies.get_strategy's
+            # convention for the same "unsupported OS" condition.
+            raise ValueError(
                 f"[DiskScanner] Unsupported OS type: {self.os_type}. "
                 "Cannot perform disk scan."
             )
@@ -148,8 +154,23 @@ class DiskScanner:
             logger.error("[DiskScanner] lsblk returned no output.")
             return []
 
-        mounted_devices = self._get_mounted_linux()
-        root_device = self._get_root_device_linux()
+        mounted_devices = self._get_mounted_linux()   # None => detection failed
+        root_device = self._get_root_device_linux()   # None => detection failed
+        root_base = self._base_device_name(root_device) if root_device else None
+
+        # Fail closed (ENG-01 / ENG-02): if either detection mechanism itself
+        # failed (missing df/awk/tail, unreadable /proc/mounts - not merely
+        # "no match found"), every disk's system/mounted status is *unknown*,
+        # not False. An unknown status must block the wipe, never silently
+        # pass Safety Check 3/4 - see core.execution_manager's check right
+        # after disk resolution.
+        detection_failed = root_device is None or mounted_devices is None
+        if detection_failed:
+            logger.error(
+                "[DiskScanner] Root-device or mount-table detection failed - "
+                "system/mounted status for every disk will be reported as "
+                "unknown (None) so callers refuse to wipe rather than guess."
+            )
 
         disks = []
         for line in raw_output.strip().splitlines():
@@ -179,16 +200,19 @@ class DiskScanner:
                 if "usb" in tran.lower():
                     bus_type = "USB"
 
-                # Determine system disk (contains root partition)
-                is_system = (
-                    f"/dev/{name}" in (root_device or "") or
-                    root_device is not None and name in root_device
-                )
-
-                # Determine if mounted
-                is_mounted = any(
-                    f"/dev/{name}" in m for m in mounted_devices
-                )
+                if detection_failed:
+                    is_system = None
+                    is_mounted = None
+                else:
+                    # Exact whole-disk-name comparison (ENG-03): a substring
+                    # check here ("sda" in "/dev/sda1") also matches unrelated
+                    # devices whose name happens to be a substring of another
+                    # (e.g. a mapper/LVM path), so compare the *base* device
+                    # name derived from the root/mount path, not containment.
+                    is_system = root_base is not None and name == root_base
+                    is_mounted = any(
+                        self._base_device_name(m) == name for m in mounted_devices
+                    )
 
                 disk = DiskInfo(
                     identifier=name,
@@ -211,22 +235,42 @@ class DiskScanner:
         logger.info(f"[DiskScanner] Linux scan complete: {len(disks)} disk(s) found.")
         return disks
 
-    def _get_mounted_linux(self) -> List[str]:
-        """Return list of currently mounted device paths."""
+    def _get_mounted_linux(self) -> Optional[List[str]]:
+        """List of currently mounted /dev/* paths, or None if detection failed."""
         try:
             output = self.executor.run_command(self.LINUX_MOUNT_CMD)
             return [line.split()[0] for line in output.splitlines() if line.startswith("/dev/")]
         except Exception as e:
             logger.warning(f"[DiskScanner] Could not read mounts: {e}")
-            return []
+            return None
 
     def _get_root_device_linux(self) -> Optional[str]:
-        """Return the device path of the root filesystem."""
+        """Device path of the root filesystem, or None if detection failed."""
         try:
-            return self.executor.run_command(self.LINUX_ROOT_CMD).strip()
+            result = self.executor.run_command(self.LINUX_ROOT_CMD).strip()
+            return result or None
         except Exception as e:
             logger.warning(f"[DiskScanner] Could not determine root device: {e}")
             return None
+
+    @staticmethod
+    def _base_device_name(path: str) -> Optional[str]:
+        """Whole-disk name from a device/partition path.
+
+        '/dev/sda1' -> 'sda', '/dev/nvme0n1p1' -> 'nvme0n1',
+        '/dev/mmcblk0p1' -> 'mmcblk0', '/dev/sda' -> 'sda'. Used for exact
+        (not substring) matching against lsblk's whole-disk names - ENG-03.
+        """
+        if not path:
+            return None
+        base = path.rsplit("/", 1)[-1]
+        m = re.match(r"^(nvme\d+n\d+|mmcblk\d+)p\d+$", base)
+        if m:
+            return m.group(1)
+        m = re.match(r"^([a-zA-Z]+)\d+$", base)
+        if m:
+            return m.group(1)
+        return base
 
     # ------------------------------------------------------------------
     # Windows Scanning
