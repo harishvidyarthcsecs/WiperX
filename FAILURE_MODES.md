@@ -214,12 +214,15 @@ no `done` · SSE queue collision (409) · `pending_wipe` replay ·
 dirs-first ordering · `..` rejection · sandbox-root confinement (403) ·
 wipe-permission gate (viewer → 403).
 
-**Pre-existing flaky pair — order/timing dependent, NOT introduced by A3 or
-Part C** (reproduced on a clean tree): `tests/test_recovery.py::
-test_recovery_case_view_via_web` (full-run carve yields 0 files though it
-passes in isolation) and `::test_random_filler_yields_no_false_positives`
-(flaps between runs). Root cause not yet isolated — likely global carver /
-`PIL` state left by an earlier test (cf. RC-12). Triage in A4.
+**Pre-existing flaky set — order/timing dependent, NOT introduced by A3, Part C,
+or Part B** (reproduced on a clean tree, each passes in isolation): a rotating
+subset of `tests/test_recovery.py` carver tests fails on a full `pytest` run
+but not consistently the same ones - observed so far:
+`test_recovery_case_view_via_web` (carve yields 0 files),
+`test_random_filler_yields_no_false_positives`, and
+`test_genuine_footerless_file_still_carved`. Never more than one per run,
+never reproduces standalone. Root cause not yet isolated — likely global
+carver / `PIL` state left by an earlier test (cf. RC-12). Triage in A4.
 
 **Known gap — no coverage yet** (added in A7):
 missing-`WIPERX_SECRET_KEY` hard-fail ·

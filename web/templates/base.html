@@ -61,7 +61,7 @@
                 <i class="bi bi-list text-2xl"></i>
             </button>
             {% endif %}
-            <a class="text-2xl font-bold tracking-[3px] text-wx-red" href="{{ url_for('dashboard.index') }}">
+            <a class="text-2xl font-bold tracking-[3px] text-wx-red no-underline" href="{{ url_for('dashboard.index') }}">
                 <i class="bi bi-shield-fill-x"></i> WIPERX
             </a>
         </div>
@@ -76,7 +76,7 @@
             </span>
             <a href="{{ url_for('auth.logout') }}"
                class="inline-flex items-center gap-1 rounded-md border border-wx-red px-3 py-1.5 text-sm
-                      text-wx-red hover:bg-wx-red hover:text-white transition-colors">
+                      text-wx-red no-underline hover:bg-wx-red hover:text-white transition-colors">
                 <i class="bi bi-box-arrow-right"></i> Logout
             </a>
         </div>
@@ -103,7 +103,7 @@
             </div>
             {% macro nav_link(endpoint_url, active, icon, label, small=False) %}
             <a href="{{ endpoint_url }}"
-               class="mx-2 flex items-center gap-2 rounded-md px-3 py-2 {% if small %}text-[0.82rem]{% else %}text-sm{% endif %}
+               class="mx-2 flex items-center gap-2 rounded-md px-3 py-2 no-underline {% if small %}text-[0.82rem]{% else %}text-sm{% endif %}
                       {% if active %}bg-wx-red/15 border-l-4 border-wx-red text-white
                       {% else %}text-wx-muted border-l-4 border-transparent hover:bg-wx-red/15 hover:text-white{% endif %}
                       transition-colors" @click="sidebarOpen = false">

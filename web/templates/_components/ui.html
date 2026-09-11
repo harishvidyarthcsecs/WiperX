@@ -62,7 +62,7 @@
 {% endmacro %}
 
 {% macro btn(label, icon=None, variant='primary', href=None, type='button', name=None, extra_class='') %}
-{% set base_cls = "inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium transition-colors " %}
+{% set base_cls = "inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium no-underline transition-colors " %}
 {% if variant == 'primary' %}{% set cls = base_cls ~ "bg-wx-red text-white hover:bg-[#c0392b]" %}
 {% elif variant == 'outline-danger' %}{% set cls = base_cls ~ "border border-wx-red text-wx-red hover:bg-wx-red hover:text-white" %}
 {% else %}{% set cls = base_cls ~ "border border-wx-border text-wx-text hover:bg-white/5" %}

@@ -1,86 +1,90 @@
 {% extends "base.html" %}
+{% from "_components/ui.html" import card, badge, btn, table_wrap %}
 {% block title %}Machines{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <h3 style="color:#e74c3c; font-weight:700; letter-spacing:2px">
+<div class="mb-6 flex items-center justify-between">
+    <h3 class="text-2xl font-bold tracking-[2px] text-wx-red">
         <i class="bi bi-pc-display"></i> REMOTE MACHINES
     </h3>
     {% if current_user.can('manage_machines') %}
-    <a href="{{ url_for('machines.add') }}" class="btn btn-danger btn-sm">
-        <i class="bi bi-plus-circle"></i> Add Machine
-    </a>
+    {{ btn("Add Machine", icon="plus-circle", variant="primary", href=url_for('machines.add')) }}
     {% endif %}
 </div>
 
-<div class="card">
-    <div class="card-body p-0">
-        {% if machines %}
-        <table class="table table-hover mb-0">
-            <thead>
-                <tr>
-                    <th>Hostname</th><th>OS</th><th>Connection</th>
-                    <th>Description</th><th>Status</th><th>Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for m in machines %}
-                <tr>
-                    <td><strong>{{ m.hostname }}</strong></td>
-                    <td>{{ m.os_type.title() }}</td>
-                    <td><span class="badge bg-secondary">{{ m.connection_type.upper() }}</span></td>
-                    <td class="text-muted small">{{ m.description or '—' }}</td>
-                    <td>
-                        <span class="badge {% if m.status == 'online' %}bg-success{% elif m.status == 'offline' %}bg-danger{% else %}bg-secondary{% endif %}"
-                              id="status-{{ m.machine_id }}">
-                            {{ m.status }}
-                        </span>
-                    </td>
-                    <td>
-                        <button class="btn btn-sm btn-outline-secondary me-1"
-                                onclick="testConn('{{ m.machine_id }}')">
+{% call card() %}
+    {% if machines %}
+    {% call table_wrap() %}
+        <thead>
+            <tr class="text-left text-wx-muted">
+                <th class="py-1 pr-3 font-normal">Hostname</th>
+                <th class="py-1 pr-3 font-normal">OS</th>
+                <th class="py-1 pr-3 font-normal">Connection</th>
+                <th class="py-1 pr-3 font-normal">Description</th>
+                <th class="py-1 pr-3 font-normal">Status</th>
+                <th class="py-1 font-normal">Actions</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-wx-border">
+            {% for m in machines %}
+            <tr class="hover:bg-white/5">
+                <td class="py-2 pr-3"><strong>{{ m.hostname }}</strong></td>
+                <td class="py-2 pr-3">{{ m.os_type.title() }}</td>
+                <td class="py-2 pr-3">{{ badge(m.connection_type.upper()) }}</td>
+                <td class="py-2 pr-3 text-sm text-wx-muted">{{ m.description or '—' }}</td>
+                <td class="py-2 pr-3">
+                    <span id="status-{{ m.machine_id }}">
+                        {% if m.status == 'online' %}{{ badge(m.status, 'success') }}
+                        {% elif m.status == 'offline' %}{{ badge(m.status, 'danger') }}
+                        {% else %}{{ badge(m.status) }}{% endif %}
+                    </span>
+                </td>
+                <td class="py-2">
+                    <div class="flex items-center gap-1.5">
+                        <button type="button" class="rounded-md border border-wx-border px-2 py-1 text-wx-text hover:bg-white/5"
+                                onclick="testConn('{{ m.machine_id }}')" title="Test connection">
                             <i class="bi bi-wifi"></i>
                         </button>
                         <a href="{{ url_for('disks.scan_remote', machine_id=m.machine_id) }}"
-                           class="btn btn-sm btn-outline-primary me-1">
+                           class="rounded-md border border-wx-border px-2 py-1 text-sm text-wx-text hover:bg-white/5 no-underline">
                             <i class="bi bi-search"></i> Scan
                         </a>
                         {% if current_user.can('manage_machines') %}
-                        <form method="POST"
-                              action="{{ url_for('machines.delete', machine_id=m.machine_id) }}"
-                              style="display:inline"
-                              onsubmit="return confirm('Remove this machine?')">
+                        <form method="POST" action="{{ url_for('machines.delete', machine_id=m.machine_id) }}"
+                              class="inline" onsubmit="return confirm('Remove this machine?')">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                            <button type="submit" class="btn btn-sm btn-outline-danger">
+                            <button type="submit"
+                                    class="rounded-md border border-wx-red px-2 py-1 text-wx-red hover:bg-wx-red hover:text-white">
                                 <i class="bi bi-trash"></i>
                             </button>
                         </form>
                         {% endif %}
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        {% else %}
-        <div class="text-center text-muted py-5">
-            <i class="bi bi-pc-display" style="font-size:3rem"></i>
-            <p class="mt-3">No machines registered.</p>
-            <a href="{{ url_for('machines.add') }}" class="btn btn-outline-secondary btn-sm">Add Machine</a>
-        </div>
-        {% endif %}
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    {% endcall %}
+    {% else %}
+    <div class="py-10 text-center text-wx-muted">
+        <i class="bi bi-pc-display text-5xl"></i>
+        <p class="mt-3">No machines registered.</p>
+        {{ btn("Add Machine", variant="outline", href=url_for('machines.add')) }}
     </div>
-</div>
+    {% endif %}
+{% endcall %}
 
 {% block extra_js %}
 <script>
 function testConn(machineId) {
     const badge = document.getElementById("status-" + machineId);
-    badge.textContent = "testing...";
-    badge.className = "badge bg-warning";
+    const base = "inline-flex items-center rounded px-2 py-0.5 text-xs font-medium";
+    badge.innerHTML = '<span class="' + base + ' bg-wx-warning/15 text-wx-warning">testing...</span>';
     fetch("/machines/test/" + machineId)
         .then(r => r.json())
         .then(data => {
-            badge.textContent = data.status;
-            badge.className = "badge " + (data.status === "online" ? "bg-success" : "bg-danger");
+            const ok = data.status === "online";
+            const cls = ok ? "bg-wx-success/15 text-wx-success" : "bg-wx-red/15 text-wx-red";
+            badge.innerHTML = '<span class="' + base + ' ' + cls + '">' + data.status + '</span>';
         });
 }
 </script>
