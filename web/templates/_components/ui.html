@@ -1,0 +1,108 @@
+{#
+  ui.html - hand-built Tailwind component set for the Part B page pass.
+  Patterns adapted by hand (no copied code) from common dashboard/console UI
+  layouts in the style of 21st.dev component galleries.
+
+  Usage:
+    {% from "_components/ui.html" import card, stat_card, badge, btn, field,
+       table_wrap, log_console, progress %}
+
+    {% call card(title="New Recovery", icon="search") %}
+      ...form/content...
+    {% endcall %}
+
+  These rely only on the Tailwind utility classes generated from
+  web/static/src/input.css (no preflight - see that file's header comment),
+  so they're safe to mix into a still-partly-Bootstrap page.
+#}
+
+{% macro card(title=None, icon=None, extra_class='') %}
+<div class="rounded-xl border border-wx-border bg-wx-card {{ extra_class }}">
+  {% if title %}
+  <div class="flex items-center justify-between gap-2 rounded-t-xl border-b border-wx-border bg-wx-red/10 px-4 py-3">
+    <strong class="flex items-center gap-2 text-wx-text">
+      {% if icon %}<i class="bi bi-{{ icon }}"></i>{% endif %} {{ title }}
+    </strong>
+  </div>
+  {% endif %}
+  <div class="p-4">
+    {{ caller() }}
+  </div>
+</div>
+{% endmacro %}
+
+{% macro stat_card(label, value, icon=None, href=None) %}
+{% set inner %}
+<div class="flex items-start justify-between">
+  <div>
+    <p class="mb-1 text-xs text-wx-muted">{{ label }}</p>
+    <h3 class="text-2xl font-bold text-wx-text">{{ value }}</h3>
+  </div>
+  {% if icon %}<i class="bi bi-{{ icon }} text-2xl text-wx-border"></i>{% endif %}
+</div>
+{% endset %}
+{% if href %}
+<a href="{{ href }}" class="block rounded-xl border-l-4 border-l-wx-red border border-wx-border
+                             bg-wx-card p-4 no-underline transition-transform hover:-translate-y-0.5">
+  {{ inner }}
+</a>
+{% else %}
+<div class="rounded-xl border-l-4 border-l-wx-red border border-wx-border bg-wx-card p-4">
+  {{ inner }}
+</div>
+{% endif %}
+{% endmacro %}
+
+{% macro badge(text, variant='default') %}
+<span class="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium
+             {% if variant == 'success' %}bg-wx-success/15 text-wx-success
+             {% elif variant == 'danger' %}bg-wx-red/15 text-wx-red
+             {% elif variant == 'warning' %}bg-wx-warning/15 text-wx-warning
+             {% else %}bg-white/10 text-wx-muted{% endif %}">{{ text }}</span>
+{% endmacro %}
+
+{% macro btn(label, icon=None, variant='primary', href=None, type='button', name=None, extra_class='') %}
+{% set base_cls = "inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium transition-colors " %}
+{% if variant == 'primary' %}{% set cls = base_cls ~ "bg-wx-red text-white hover:bg-[#c0392b]" %}
+{% elif variant == 'outline-danger' %}{% set cls = base_cls ~ "border border-wx-red text-wx-red hover:bg-wx-red hover:text-white" %}
+{% else %}{% set cls = base_cls ~ "border border-wx-border text-wx-text hover:bg-white/5" %}
+{% endif %}
+{% if href %}
+<a href="{{ href }}" class="{{ cls }} {{ extra_class }}">{% if icon %}<i class="bi bi-{{ icon }}"></i>{% endif %} {{ label }}</a>
+{% else %}
+<button type="{{ type }}" {% if name %}name="{{ name }}"{% endif %} class="{{ cls }} {{ extra_class }}">
+  {% if icon %}<i class="bi bi-{{ icon }}"></i>{% endif %} {{ label }}
+</button>
+{% endif %}
+{% endmacro %}
+
+{% macro field(label, name, type='text', value='', placeholder='', help=None, required=False) %}
+<div class="mb-3">
+  <label class="mb-1 block text-sm text-wx-muted">{{ label }}</label>
+  <input type="{{ type }}" name="{{ name }}" value="{{ value }}" placeholder="{{ placeholder }}"
+         {% if required %}required{% endif %}
+         class="w-full rounded-md border border-wx-border bg-wx-dark px-3 py-2 text-wx-text
+                focus:outline-none focus:border-wx-red focus:ring focus:ring-wx-red-dim">
+  {% if help %}<small class="mt-1 block text-xs text-wx-muted">{{ help }}</small>{% endif %}
+</div>
+{% endmacro %}
+
+{% macro table_wrap() %}
+<div class="overflow-x-auto">
+  <table class="w-full min-w-full divide-y divide-wx-border text-sm">
+    {{ caller() }}
+  </table>
+</div>
+{% endmacro %}
+
+{% macro log_console(id='wx-log-console') %}
+<div id="{{ id }}"
+     class="h-96 overflow-y-auto rounded-lg border border-wx-border bg-wx-dark p-3 font-mono text-[0.82rem]"></div>
+{% endmacro %}
+
+{% macro progress(id='wx-progress', indeterminate=False) %}
+<div class="h-2 w-full overflow-hidden rounded-full bg-wx-border" role="progressbar" aria-valuemin="0" aria-valuemax="100">
+  <div id="{{ id }}"
+       class="h-full bg-wx-red transition-all duration-300 {% if indeterminate %}w-1/3 animate-pulse{% else %}w-0{% endif %}"></div>
+</div>
+{% endmacro %}
