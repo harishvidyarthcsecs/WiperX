@@ -1,102 +1,86 @@
 {% extends "base.html" %}
+{% from "_components/ui.html" import card, btn %}
 {% block title %}Confirm Wipe{% endblock %}
 {% block content %}
-<div class="row justify-content-center">
-    <div class="col-md-7">
-        <!-- Warning Header -->
-        <div class="text-center mb-4">
-            <div style="font-size:4rem; color:#e74c3c; animation: pulse 1.5s infinite">
-                <i class="bi bi-exclamation-triangle-fill"></i>
-            </div>
-            <h2 style="color:#e74c3c; font-weight:800; letter-spacing:2px">WIPE CONFIRMATION</h2>
-            <p class="text-muted">This action is <strong>PERMANENT</strong> and <strong>IRREVERSIBLE</strong></p>
+<div class="mx-auto max-w-2xl">
+    <!-- Warning Header -->
+    <div class="mb-6 text-center">
+        <div class="animate-pulse text-6xl text-wx-red">
+            <i class="bi bi-exclamation-triangle-fill"></i>
         </div>
+        <h2 class="text-2xl font-extrabold tracking-[2px] text-wx-red">WIPE CONFIRMATION</h2>
+        <p class="text-wx-muted">This action is <strong>PERMANENT</strong> and <strong>IRREVERSIBLE</strong></p>
+    </div>
 
-        <!-- Wipe Target Info -->
-        <div class="card mb-4 wipe-warning-box">
-            <div class="p-3">
-                <table class="table table-sm mb-0" style="color: inherit">
-                    <tr>
-                        <td class="text-muted" width="35%">Target Machine</td>
-                        <td><strong>{{ target_label }}</strong></td>
-                    </tr>
-                    <tr>
-                        <td class="text-muted">Disk Identifier</td>
-                        <td><code style="color:#e74c3c; font-size:1.1rem">{{ disk_id }}</code></td>
-                    </tr>
-                </table>
-            </div>
+    <!-- Wipe Target Info -->
+    <div class="mb-4 rounded-lg border-2 border-wx-red bg-wx-red/10 p-4">
+        <div class="flex justify-between border-b border-wx-border/60 py-1.5">
+            <span class="text-wx-muted">Target Machine</span>
+            <strong>{{ target_label }}</strong>
         </div>
-
-        <!-- Confirmation Form -->
-        <div class="card">
-            <div class="card-header"><strong>Double Confirmation Required</strong></div>
-            <div class="card-body">
-                <form method="POST" action="{{ url_for('wipe.confirm') }}">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <input type="hidden" name="disk_id" value="{{ disk_id }}">
-                    <input type="hidden" name="machine_id" value="{{ machine_id }}">
-
-                    <div class="mb-4">
-                        <label class="form-label">
-                            <strong>Step 1:</strong> Type the disk identifier
-                            <code style="color:#e74c3c">{{ disk_id }}</code> manually:
-                        </label>
-                        <input type="text" name="confirm_name" class="form-control"
-                               placeholder="Type disk name here..."
-                               autocomplete="off" required>
-                        <div class="form-text text-muted">
-                            This prevents accidental wiping of the wrong disk.
-                        </div>
-                    </div>
-
-                    <div class="mb-4">
-                        <label class="form-label">
-                            <strong>Step 2:</strong> Type <code style="color:#e74c3c">WIPE</code>
-                            to confirm permanent data destruction:
-                        </label>
-                        <input type="text" name="second_confirm" class="form-control"
-                               placeholder="Type WIPE to confirm..."
-                               autocomplete="off" required>
-                    </div>
-
-                    <div class="mb-4">
-                        <label class="form-label"><strong>Operator Name</strong> (for audit report):</label>
-                        <input type="text" name="operator" class="form-control"
-                               value="{{ current_user.display_name }}">
-                    </div>
-
-                    <div class="form-check mb-4 p-3 rounded" style="background: rgba(243,156,18,0.08); border: 1px solid rgba(243,156,18,0.3)">
-                        <input class="form-check-input" type="checkbox" name="force_unmount" id="force-unmount">
-                        <label class="form-check-label" for="force-unmount">
-                            <strong>Force-unmount and wipe</strong> if this disk is mounted
-                        </label>
-                        <div class="form-text text-muted">
-                            Only applies to an <strong>external / removable</strong> disk (USB,
-                            Thunderbolt, disk image) that is <strong>not</strong> the system disk —
-                            any other disk is refused regardless of this box. Unmounts every mounted
-                            volume on it first; any unsaved data there is lost.
-                        </div>
-                    </div>
-
-                    <div class="d-grid gap-2">
-                        <button type="submit" class="btn btn-danger btn-lg">
-                            <i class="bi bi-trash3-fill me-2"></i>INITIATE WIPE
-                        </button>
-                        <a href="{{ url_for('dashboard.index') }}" class="btn btn-outline-secondary">
-                            <i class="bi bi-x-circle me-2"></i>Cancel — Do Not Wipe
-                        </a>
-                    </div>
-                </form>
-            </div>
+        <div class="flex justify-between py-1.5">
+            <span class="text-wx-muted">Disk Identifier</span>
+            <code class="text-lg text-wx-red">{{ disk_id }}</code>
         </div>
     </div>
-</div>
 
-<style>
-@keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
-}
-</style>
+    <!-- Confirmation Form -->
+    {% call card(title="Double Confirmation Required") %}
+        <form method="POST" action="{{ url_for('wipe.confirm') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="disk_id" value="{{ disk_id }}">
+            <input type="hidden" name="machine_id" value="{{ machine_id }}">
+
+            <div class="mb-4">
+                <label class="mb-1 block">
+                    <strong>Step 1:</strong> Type the disk identifier
+                    <code class="text-wx-red">{{ disk_id }}</code> manually:
+                </label>
+                <input type="text" name="confirm_name" placeholder="Type disk name here..."
+                       autocomplete="off" required
+                       class="w-full rounded-md border border-wx-border bg-wx-dark px-3 py-2 text-wx-text
+                              focus:outline-none focus:border-wx-red focus:ring focus:ring-wx-red-dim">
+                <div class="mt-1 text-sm text-wx-muted">
+                    This prevents accidental wiping of the wrong disk.
+                </div>
+            </div>
+
+            <div class="mb-4">
+                <label class="mb-1 block">
+                    <strong>Step 2:</strong> Type <code class="text-wx-red">WIPE</code>
+                    to confirm permanent data destruction:
+                </label>
+                <input type="text" name="second_confirm" placeholder="Type WIPE to confirm..."
+                       autocomplete="off" required
+                       class="w-full rounded-md border border-wx-border bg-wx-dark px-3 py-2 text-wx-text
+                              focus:outline-none focus:border-wx-red focus:ring focus:ring-wx-red-dim">
+            </div>
+
+            <div class="mb-4">
+                <label class="mb-1 block"><strong>Operator Name</strong> (for audit report):</label>
+                <input type="text" name="operator" value="{{ current_user.display_name }}"
+                       class="w-full rounded-md border border-wx-border bg-wx-dark px-3 py-2 text-wx-text
+                              focus:outline-none focus:border-wx-red focus:ring focus:ring-wx-red-dim">
+            </div>
+
+            <div class="mb-4 rounded-md border border-wx-warning/40 bg-wx-warning/10 p-3">
+                <label class="flex items-start gap-2">
+                    <input type="checkbox" name="force_unmount" class="mt-1">
+                    <span><strong>Force-unmount and wipe</strong> if this disk is mounted</span>
+                </label>
+                <div class="mt-1 text-sm text-wx-muted">
+                    Only applies to an <strong>external / removable</strong> disk (USB,
+                    Thunderbolt, disk image) that is <strong>not</strong> the system disk —
+                    any other disk is refused regardless of this box. Unmounts every mounted
+                    volume on it first; any unsaved data there is lost.
+                </div>
+            </div>
+
+            <div class="grid gap-2">
+                {{ btn("INITIATE WIPE", icon="trash3-fill", variant="primary", type="submit", extra_class="py-3 text-base") }}
+                {{ btn("Cancel — Do Not Wipe", icon="x-circle", variant="outline", href=url_for('dashboard.index')) }}
+            </div>
+        </form>
+    {% endcall %}
+</div>
 {% endblock %}
