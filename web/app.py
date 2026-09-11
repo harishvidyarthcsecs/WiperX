@@ -87,7 +87,8 @@ def create_app(config_override: dict = None) -> Flask:
         "SECRET_KEY": _secret,
         "SESSION_COOKIE_HTTPONLY": True,
         "SESSION_COOKIE_SAMESITE": "Lax",
-        "SESSION_COOKIE_SECURE": os.environ.get("WIPERX_HTTPS", "false").lower() == "true",
+        "SESSION_COOKIE_SECURE": os.environ.get("WIPERX_HTTPS", "false").strip().lower()
+        in ("1", "true", "yes", "on"),
         "MAX_CONTENT_LENGTH": 16 * 1024 * 1024,  # 16MB max upload
         "REPORTS_DIR": os.path.join(os.path.dirname(__file__), "..", "reports"),
     })
