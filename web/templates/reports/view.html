@@ -1,120 +1,109 @@
 {% extends "base.html" %}
+{% from "_components/ui.html" import card, badge, btn %}
 {% block title %}Report: {{ filename }}{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="mb-6 flex items-center justify-between">
     <div>
-        <h3 class="mb-1" style="color:#e74c3c; font-weight:700; letter-spacing:2px">
+        <h3 class="mb-1 text-2xl font-bold tracking-[2px] text-wx-red">
             <i class="bi bi-file-earmark-text"></i> {{ kind|upper }} REPORT
         </h3>
-        <p class="text-muted mb-0 small"><code>{{ filename }}</code></p>
+        <p class="mb-0 text-sm text-wx-muted"><code>{{ filename }}</code></p>
     </div>
-    <div>
-        <a href="{{ url_for('reports.download', filename=filename) }}" class="btn btn-outline-primary btn-sm me-2">
-            <i class="bi bi-download"></i> Download JSON
-        </a>
-        <a href="{{ url_for('reports.index') }}" class="btn btn-outline-secondary btn-sm">
-            <i class="bi bi-arrow-left"></i> Back
-        </a>
+    <div class="flex gap-2">
+        {{ btn("Download JSON", icon="download", variant="outline", href=url_for('reports.download', filename=filename)) }}
+        {{ btn("Back", icon="arrow-left", variant="outline", href=url_for('reports.index')) }}
     </div>
 </div>
 
 {% macro row(k, v) %}
-<dt class="col-5 text-muted">{{ k }}</dt><dd class="col-7">{{ v if v not in (none, '') else '—' }}</dd>
+<div class="flex gap-2 py-1 text-sm">
+    <dt class="w-2/5 shrink-0 text-wx-muted">{{ k }}</dt>
+    <dd class="min-w-0 flex-1 break-words">{{ v if v not in (none, '') else '—' }}</dd>
+</div>
 {% endmacro %}
 
-<div class="row g-3 mb-3">
-    <div class="col-md-6">
-        <div class="card h-100">
-            <div class="card-header"><strong>Summary</strong></div>
-            <div class="card-body">
-                <dl class="row mb-0">
-                {% if kind == 'wipe' %}
-                    {% set op = report.get('operation', {}) %}
-                    {% set tgt = report.get('target', {}) %}
-                    {% set wp = report.get('wipe', {}) %}
-                    {{ row('Status', 'SUCCESS' if op.success else 'FAILED') }}
-                    {{ row('Timestamp', op.timestamp) }}
-                    {{ row('Host', tgt.hostname) }}
-                    {{ row('Disk', tgt.disk_identifier) }}
-                    {{ row('Model', tgt.disk_model) }}
-                    {{ row('Serial', tgt.disk_serial) }}
-                    {{ row('Strategy', wp.strategy_used) }}
-                    {{ row('Method', wp.method) }}
-                    {{ row('Passes', wp.pass_count) }}
-                {% elif kind == 'erase' %}
-                    {% set meta = report.get('wiperx_erase_report', {}) %}
-                    {% set s = report.get('summary', {}) %}
-                    {{ row('Generated', meta.generated_at) }}
-                    {{ row('Host', meta.host) }}
-                    {{ row('Operator', meta.operator) }}
-                    {{ row('Total paths', s.total) }}
-                    {{ row('Succeeded', s.succeeded) }}
-                    {{ row('Failed', s.failed) }}
-                    {{ row('Bytes erased', s.bytes_erased) }}
-                {% elif kind == 'freespace' %}
-                    {% set meta = report.get('wiperx_erase_report', {}) %}
-                    {% set fs = report.get('free_space_wipe', {}) %}
-                    {{ row('Generated', meta.generated_at) }}
-                    {{ row('Host', meta.host) }}
-                    {{ row('Mount', fs.mount or fs.mount_point) }}
-                    {{ row('OK', fs.ok) }}
-                    {{ row('Bytes written', fs.bytes_written) }}
-                {% elif kind == 'recover' %}
-                    {% set hdr = report.get('manifest', report.get('case', {})) %}
-                    {% set summ = report.get('summary', {}) %}
-                    {{ row('Case', hdr.case_id) }}
-                    {{ row('Started', hdr.started_at) }}
-                    {{ row('Operator', hdr.operator) }}
-                    {{ row('Source', (hdr.source or {}).path) }}
-                    {{ row('Files recovered', summ.total) }}
-                {% else %}
-                    <p class="text-muted mb-0">See raw payload below.</p>
-                {% endif %}
-                </dl>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-6">
-        <div class="card h-100">
-            <div class="card-header"><strong>Signature</strong></div>
-            <div class="card-body">
-                {% if signature.valid and signature.trusted %}
-                <span class="badge bg-success mb-2">SIGNED &amp; TRUSTED</span>
-                {% elif signature.valid %}
-                <span class="badge mb-2" style="background:#f39c12">SIGNED — UNTRUSTED KEY</span>
-                {% else %}
-                <span class="badge bg-secondary mb-2">UNSIGNED</span>
-                {% endif %}
-                <p class="small text-muted mb-0">{{ signature.details or signature.reason or '' }}</p>
-                {% if kind == 'wipe' and report.get('verification') %}
-                <hr style="border-color:var(--wx-border)">
-                {% set v = report.verification %}
-                <span class="badge {% if v.verified %}bg-success{% elif v.verified == false %}bg-danger{% else %}bg-secondary{% endif %} mb-2">
-                    {{ 'VERIFIED' if v.verified else ('NOT VERIFIED' if v.verified == false else 'N/A') }}
-                </span>
-                <p class="small text-muted mb-0">{{ v.details }}</p>
-                {% endif %}
-            </div>
-        </div>
-    </div>
+<div class="mb-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+    {% call card(title="Summary") %}
+        <dl class="mb-0 divide-y divide-wx-border">
+        {% if kind == 'wipe' %}
+            {% set op = report.get('operation', {}) %}
+            {% set tgt = report.get('target', {}) %}
+            {% set wp = report.get('wipe', {}) %}
+            {{ row('Status', 'SUCCESS' if op.success else 'FAILED') }}
+            {{ row('Timestamp', op.timestamp) }}
+            {{ row('Host', tgt.hostname) }}
+            {{ row('Disk', tgt.disk_identifier) }}
+            {{ row('Model', tgt.disk_model) }}
+            {{ row('Serial', tgt.disk_serial) }}
+            {{ row('Strategy', wp.strategy_used) }}
+            {{ row('Method', wp.method) }}
+            {{ row('Passes', wp.pass_count) }}
+        {% elif kind == 'erase' %}
+            {% set meta = report.get('wiperx_erase_report', {}) %}
+            {% set s = report.get('summary', {}) %}
+            {{ row('Generated', meta.generated_at) }}
+            {{ row('Host', meta.host) }}
+            {{ row('Operator', meta.operator) }}
+            {{ row('Total paths', s.total) }}
+            {{ row('Succeeded', s.succeeded) }}
+            {{ row('Failed', s.failed) }}
+            {{ row('Bytes erased', s.bytes_erased) }}
+        {% elif kind == 'freespace' %}
+            {% set meta = report.get('wiperx_erase_report', {}) %}
+            {% set fs = report.get('free_space_wipe', {}) %}
+            {{ row('Generated', meta.generated_at) }}
+            {{ row('Host', meta.host) }}
+            {{ row('Mount', fs.mount or fs.mount_point) }}
+            {{ row('OK', fs.ok) }}
+            {{ row('Bytes written', fs.bytes_written) }}
+        {% elif kind == 'recover' %}
+            {% set hdr = report.get('manifest', report.get('case', {})) %}
+            {% set summ = report.get('summary', {}) %}
+            {{ row('Case', hdr.case_id) }}
+            {{ row('Started', hdr.started_at) }}
+            {{ row('Operator', hdr.operator) }}
+            {{ row('Source', (hdr.source or {}).path) }}
+            {{ row('Files recovered', summ.total) }}
+        {% else %}
+            <p class="mb-0 text-wx-muted">See raw payload below.</p>
+        {% endif %}
+        </dl>
+    {% endcall %}
+
+    {% call card(title="Signature") %}
+        {% if signature.valid and signature.trusted %}
+        {{ badge("SIGNED & TRUSTED", "success") }}
+        {% elif signature.valid %}
+        {{ badge("SIGNED — UNTRUSTED KEY", "warning") }}
+        {% else %}
+        {{ badge("UNSIGNED") }}
+        {% endif %}
+        <p class="mb-0 mt-2 text-sm text-wx-muted">{{ signature.details or signature.reason or '' }}</p>
+        {% if kind == 'wipe' and report.get('verification') %}
+        <hr class="my-3 border-wx-border">
+        {% set v = report.verification %}
+        {% if v.verified %}{{ badge("VERIFIED", "success") }}
+        {% elif v.verified == false %}{{ badge("NOT VERIFIED", "danger") }}
+        {% else %}{{ badge("N/A") }}{% endif %}
+        <p class="mb-0 mt-2 text-sm text-wx-muted">{{ v.details }}</p>
+        {% endif %}
+    {% endcall %}
 </div>
 
 {% set logs = report.get('wipe', {}).get('log_lines') or report.get('log_lines') %}
 {% if logs %}
-<div class="card mb-3">
-    <div class="card-header"><strong>Operation Log</strong></div>
-    <div class="log-panel">
-        {% for line in logs %}
-        <p class="log-line {% if 'ERROR' in line %}log-error{% elif 'WARNING' in line %}log-warning{% elif 'PASSED' in line or 'complete' in line %}log-success{% else %}log-info{% endif %}">{{ line }}</p>
-        {% endfor %}
-    </div>
+<div class="mb-3">
+    {% call card(title="Operation Log") %}
+        <div class="log-panel">
+            {% for line in logs %}
+            <p class="log-line {% if 'ERROR' in line %}log-error{% elif 'WARNING' in line %}log-warning{% elif 'PASSED' in line or 'complete' in line %}log-success{% else %}log-info{% endif %}">{{ line }}</p>
+            {% endfor %}
+        </div>
+    {% endcall %}
 </div>
 {% endif %}
 
-<div class="card">
-    <div class="card-header"><strong>Raw payload</strong></div>
-    <div class="card-body p-0">
-        <pre class="mb-0 p-3" style="max-height:480px; overflow:auto; font-size:0.8rem">{{ raw | tojson(indent=2) }}</pre>
-    </div>
-</div>
+{% call card(title="Raw payload") %}
+    <pre class="mb-0 max-h-[480px] overflow-auto text-xs">{{ raw | tojson(indent=2) }}</pre>
+{% endcall %}
 {% endblock %}

@@ -70,7 +70,7 @@
             <span class="text-wx-muted text-sm hidden sm:inline-flex items-center gap-1">
                 <i class="bi bi-person-circle"></i>
                 {{ current_user.display_name }}
-                <span class="ml-1 rounded bg-[#2d3748] px-1.5 py-0.5 text-[0.7rem]">
+                <span class="ml-1 rounded bg-[#2d3748] px-1.5 py-0.5 text-xs">
                     {{ current_user.role.upper() }}
                 </span>
             </span>
@@ -103,7 +103,7 @@
             </div>
             {% macro nav_link(endpoint_url, active, icon, label, small=False) %}
             <a href="{{ endpoint_url }}"
-               class="mx-2 flex items-center gap-2 rounded-md px-3 py-2 no-underline {% if small %}text-[0.82rem]{% else %}text-sm{% endif %}
+               class="mx-2 flex items-center gap-2 rounded-md px-3 py-2 no-underline {% if small %}text-xs{% else %}text-sm{% endif %}
                       {% if active %}bg-wx-red/15 border-l-4 border-wx-red text-white
                       {% else %}text-wx-muted border-l-4 border-transparent hover:bg-wx-red/15 hover:text-white{% endif %}
                       transition-colors" @click="sidebarOpen = false">
@@ -120,7 +120,7 @@
             </nav>
             <hr class="my-3 border-wx-border">
             <div class="px-4">
-                <p class="text-[0.7rem] tracking-widest text-wx-muted">SYSTEM</p>
+                <p class="text-xs tracking-widest text-wx-muted">SYSTEM</p>
                 <nav class="-mx-2 flex flex-col">
                     {{ nav_link(url_for('dashboard.audit'), request.endpoint == 'dashboard.audit', 'file-lock', 'Audit Logs', small=True) }}
                 </nav>

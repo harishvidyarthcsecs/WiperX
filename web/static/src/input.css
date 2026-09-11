@@ -14,6 +14,13 @@
 @import "tailwindcss/theme.css";
 @import "tailwindcss/utilities.css";
 
+/* Explicit content source, belt-and-suspenders alongside automatic detection:
+   a previously-unanchored .gitignore pattern made the automatic scan silently
+   skip web/templates/reports/ (fixed in .gitignore), which meant that
+   directory's utility classes never made it into the build. Point at the
+   whole template tree directly so a future gitignore change can't repeat it. */
+@source "../../templates";
+
 @theme {
   /* WiperX "security console" identity - same values as the inline <style>
      block in base.html being phased out, kept as Tailwind theme tokens so

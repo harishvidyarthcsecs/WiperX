@@ -53,12 +53,15 @@
 {% endif %}
 {% endmacro %}
 
-{% macro badge(text, variant='default') %}
-<span class="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium
-             {% if variant == 'success' %}bg-wx-success/15 text-wx-success
-             {% elif variant == 'danger' %}bg-wx-red/15 text-wx-red
-             {% elif variant == 'warning' %}bg-wx-warning/15 text-wx-warning
-             {% else %}bg-white/10 text-wx-muted{% endif %}">{{ text }}</span>
+{% macro badge(text, variant='default', icon=None, outline=False) %}
+<span class="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium
+             {% if variant == 'success' %}bg-wx-success/15 text-wx-success {% if outline %}border border-wx-success{% endif %}
+             {% elif variant == 'danger' %}bg-wx-red/15 text-wx-red {% if outline %}border border-wx-red{% endif %}
+             {% elif variant == 'warning' %}bg-wx-warning/15 text-wx-warning {% if outline %}border border-wx-warning{% endif %}
+             {% elif variant == 'info' %}bg-wx-info/15 text-wx-info {% if outline %}border border-wx-info{% endif %}
+             {% else %}bg-white/10 text-wx-muted{% endif %}">
+  {% if icon %}<i class="bi bi-{{ icon }}"></i>{% endif %}{{ text }}
+</span>
 {% endmacro %}
 
 {% macro btn(label, icon=None, variant='primary', href=None, type='button', name=None, extra_class='') %}
@@ -97,7 +100,7 @@
 
 {% macro log_console(id='wx-log-console') %}
 <div id="{{ id }}"
-     class="h-96 overflow-y-auto rounded-lg border border-wx-border bg-wx-dark p-3 font-mono text-[0.82rem]"></div>
+     class="h-96 overflow-y-auto rounded-lg border border-wx-border bg-wx-dark p-3 font-mono text-xs"></div>
 {% endmacro %}
 
 {% macro progress(id='wx-progress', indeterminate=False) %}

@@ -15,11 +15,14 @@ env/
 .env.*
 !.env.example
 
-# WiperX runtime output
-reports/
-logs/
-cases/
-keys/
+# WiperX runtime output (anchored to repo root - do NOT drop the leading "/":
+# an unanchored "reports/" also matches web/templates/reports/, which made
+# Tailwind's content scanner silently skip that directory - see the Part B
+# page-pass commit that found this)
+/reports/
+/logs/
+/cases/
+/keys/
 *.pdf
 
 # Disk images / demo artefacts
