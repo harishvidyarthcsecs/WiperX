@@ -210,6 +210,20 @@ class TestStrategyFactory:
         strategy = get_strategy(disk, OSType.LINUX)
         assert isinstance(strategy, LinuxNVMeWipeStrategy)
 
+    def test_nvme_strategy_refuses_unexpected_identifier(self):
+        """ENG-06: a malformed/unexpected NVMe identifier must refuse the
+        erase, never silently fall back to a hard-coded nvme0n1 device path
+        (which could crypto-erase the wrong namespace entirely)."""
+        from unittest.mock import MagicMock
+        from core.strategies import LinuxNVMeWipeStrategy
+
+        disk = self._make_disk("NVMe", "NVMe", "not-an-nvme-id")
+        executor = MagicMock()
+        ok = LinuxNVMeWipeStrategy().execute(disk, executor, log_callback=None)
+
+        assert ok is False
+        executor.run_command.assert_not_called()
+
     def test_linux_usb_gets_dd(self):
         from core.strategies import get_strategy, LinuxUSBWipeStrategy
         from core.os_detector import OSType

@@ -18,6 +18,7 @@ single `execute(disk, executor, log_callback)` method.
 """
 
 import logging
+import re
 import shlex
 from abc import ABC, abstractmethod
 from typing import Callable, List, Optional
@@ -283,11 +284,18 @@ class LinuxNVMeWipeStrategy(WipeStrategy):
                 log_callback,
             )
 
-        # NVMe device paths: /dev/nvme0n1, /dev/nvme1n1, etc.
-        # The identifier may be "nvme0n1" or "nvme0" — normalize it
+        # NVMe device paths: /dev/nvme0n1, /dev/nvme1n1, etc. ENG-06: a bad
+        # match here must refuse, not silently fall back to a hard-coded
+        # namespace - that would crypto-erase whatever happens to be
+        # nvme0n1, which may not be the disk the operator confirmed at all.
         identifier = disk.identifier
-        if not identifier.startswith("nvme"):
-            identifier = "nvme0n1"  # fallback
+        if not re.match(r"^nvme\d+n\d+$", identifier):
+            self._log(
+                f"ERROR: unexpected NVMe identifier '{identifier}' - refusing "
+                "to guess a device path for the crypto-erase.",
+                log_callback,
+            )
+            return False
 
         device_path = f"/dev/{identifier}"
         cmd = f"nvme format {device_path} --ses=1 --force"

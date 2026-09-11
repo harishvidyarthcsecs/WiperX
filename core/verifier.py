@@ -106,6 +106,34 @@ class WipeVerifier:
     def _verify_sample(self, device_path, disk, executor, log_fn,
                        sample_count, expected) -> dict:
         size_bytes = getattr(disk, "size_bytes", 0) or 0
+
+        if size_bytes == 0:
+            # ENG-07: with no known size there is no way to "spread samples
+            # across the full device length" - the old code fell through to
+            # a single degenerate offset-0 read, and if that one read failed
+            # it landed on `sampled == 0` -> verified=False, downgrading an
+            # otherwise-successful wipe. Unsized is inconclusive, not failed.
+            log_fn(
+                f"Cannot verify {device_path}: disk size is unknown (scanner "
+                "reported 0 bytes) - skipping sampling; this does not fail "
+                "the wipe."
+            )
+            return {
+                "verified": None,
+                "method": "entropy_sampling",
+                "details": "disk size unknown; verification skipped (inconclusive, not a failure)",
+                "samples": 0,
+                "nonzero": 0,
+                "read_errors": 0,
+                "read_error_ratio": 0.0,
+                "verdicts": {},
+                "entropy_min": 0.0,
+                "entropy_mean": 0.0,
+                "entropy_max": 0.0,
+                "coverage_pct": 0.0,
+                "expected": expected,
+            }
+
         max_offset = max(0, size_bytes - self.SAMPLE_SIZE)
         log_fn(f"Sampling {sample_count} x {self.SAMPLE_SIZE}B chunks across "
                f"{device_path} ({size_bytes} bytes)")

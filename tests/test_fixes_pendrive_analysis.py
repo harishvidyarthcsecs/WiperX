@@ -71,6 +71,30 @@ def test_verifier_inconclusive_when_read_errors_over_tolerance(monkeypatch):
     assert res["verified"] is None
 
 
+def test_verifier_unsized_disk_is_inconclusive_not_failed(monkeypatch):
+    """ENG-07: a disk the scanner couldn't size (size_bytes==0) must verify
+    as None (inconclusive), never False - a genuinely successful wipe must
+    not be downgraded just because sizing failed."""
+    from core import verifier as vmod
+    from core.verifier import WipeVerifier
+
+    class _NotLocal:
+        pass
+
+    monkeypatch.setattr(vmod, "LocalExecutor", _NotLocal, raising=False)
+
+    def per_offset(cmd):
+        # Even a failing read here must not matter - size_bytes==0 should
+        # short-circuit before any sampling is attempted.
+        raise OSError("should not be called for an unsized disk")
+
+    disk = type("D", (), {"identifier": "disk9", "size_bytes": 0})()
+    res = WipeVerifier().verify(disk, _FakeExecutor(per_offset), OSType.MACOS,
+                                expected="zeroed", sample_count=50)
+    assert res["verified"] is None
+    assert res["samples"] == 0
+
+
 def test_verifier_fails_hard_on_live_data(monkeypatch):
     from core import verifier as vmod
     from core.verifier import WipeVerifier
