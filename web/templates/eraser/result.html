@@ -1,73 +1,88 @@
 {% extends "base.html" %}
+{% from "_components/ui.html" import card, badge, btn, table_wrap %}
 {% block title %}Erase Result{% endblock %}
 
 {% block content %}
-<h3 class="mb-3"><i class="bi bi-eraser-fill"></i> Erase Result</h3>
+<h3 class="mb-4 text-2xl font-bold"><i class="bi bi-eraser-fill"></i> Erase Result</h3>
 
 {% set s = result.summary %}
-<div class="row g-3 mb-4">
-  <div class="col-md-3"><div class="card stat-card p-3">
-    <div class="text-muted small">Files</div><div class="h4">{{ s.total if s.total is defined else '-' }}</div></div></div>
-  <div class="col-md-3"><div class="card stat-card p-3">
-    <div class="text-muted small">Succeeded</div><div class="h4 log-success">{{ s.succeeded if s.succeeded is defined else '-' }}</div></div></div>
-  <div class="col-md-3"><div class="card stat-card p-3">
-    <div class="text-muted small">Failed</div><div class="h4 {% if s.failed %}log-error{% endif %}">{{ s.failed if s.failed is defined else '-' }}</div></div></div>
-  <div class="col-md-3"><div class="card stat-card p-3">
-    <div class="text-muted small">Bytes erased</div><div class="h4">{{ s.bytes_erased if s.bytes_erased is defined else '-' }}</div></div></div>
-</div>
-
-<div class="card p-3 mb-4">
-  <div class="d-flex justify-content-between align-items-center">
-    <div>
-      <div class="text-muted small">Signed certificate</div>
-      <code>{{ cert_name }}</code>
-      <span class="badge ms-2 {% if result.certificate_signed %}badge-ok{% else %}badge-mounted{% endif %}">
-        {{ 'SIGNED' if result.certificate_signed else 'UNSIGNED' }}
-      </span>
-    </div>
-    <a class="btn btn-outline-danger btn-sm" href="{{ url_for('reports.index') }}">
-      <i class="bi bi-file-earmark-text"></i> Reports
-    </a>
+<div class="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+  <div class="rounded-xl border-l-4 border-l-wx-red border border-wx-border bg-wx-card p-4">
+    <div class="text-sm text-wx-muted">Files</div>
+    <div class="text-2xl font-bold">{{ s.total if s.total is defined else '-' }}</div>
+  </div>
+  <div class="rounded-xl border-l-4 border-l-wx-red border border-wx-border bg-wx-card p-4">
+    <div class="text-sm text-wx-muted">Succeeded</div>
+    <div class="log-success text-2xl font-bold">{{ s.succeeded if s.succeeded is defined else '-' }}</div>
+  </div>
+  <div class="rounded-xl border-l-4 border-l-wx-red border border-wx-border bg-wx-card p-4">
+    <div class="text-sm text-wx-muted">Failed</div>
+    <div class="text-2xl font-bold {% if s.failed %}log-error{% endif %}">{{ s.failed if s.failed is defined else '-' }}</div>
+  </div>
+  <div class="rounded-xl border-l-4 border-l-wx-red border border-wx-border bg-wx-card p-4">
+    <div class="text-sm text-wx-muted">Bytes erased</div>
+    <div class="text-2xl font-bold">{{ s.bytes_erased if s.bytes_erased is defined else '-' }}</div>
   </div>
 </div>
 
+{% call card() %}
+  <div class="flex items-center justify-between">
+    <div>
+      <div class="text-sm text-wx-muted">Signed certificate</div>
+      <code>{{ cert_name }}</code>
+      <span class="ml-2">{{ badge('SIGNED' if result.certificate_signed else 'UNSIGNED', 'success' if result.certificate_signed else 'warning') }}</span>
+    </div>
+    {{ btn("Reports", icon="file-earmark-text", variant="outline-danger", href=url_for('reports.index')) }}
+  </div>
+{% endcall %}
+
 {% if result.free_space_wipe %}
-<div class="card p-3 mb-4">
-  <div class="text-muted small">Free-space wipe</div>
-  ok={{ result.free_space_wipe.ok }},
-  bytes={{ result.free_space_wipe.bytes_written }},
-  err={{ result.free_space_wipe.error }}
+<div class="mt-4">
+  {% call card() %}
+    <div class="text-sm text-wx-muted">Free-space wipe</div>
+    ok={{ result.free_space_wipe.ok }},
+    bytes={{ result.free_space_wipe.bytes_written }},
+    err={{ result.free_space_wipe.error }}
+  {% endcall %}
 </div>
 {% endif %}
 
-<h5>Log</h5>
+<h5 class="mb-2 mt-4 font-semibold">Log</h5>
 <div class="log-panel mb-4">
-  {% for line in log_lines %}<p class="log-line">{{ line }}</p>{% else %}<p class="log-line text-muted">(no log lines)</p>{% endfor %}
+  {% for line in log_lines %}<p class="log-line">{{ line }}</p>{% else %}<p class="log-line text-wx-muted">(no log lines)</p>{% endfor %}
 </div>
 
 {% if result.files %}
-<h5>Per-file</h5>
-<div class="table-responsive">
-<table class="table table-sm">
-  <thead><tr><th>Path</th><th>Bytes</th><th>Method</th><th>Passes</th><th>Renames</th><th>OK</th><th>Error</th></tr></thead>
-  <tbody>
+<h5 class="mb-2 font-semibold">Per-file</h5>
+{% call table_wrap() %}
+  <thead>
+    <tr class="text-left text-wx-muted">
+      <th class="py-1 pr-3 font-normal">Path</th>
+      <th class="py-1 pr-3 font-normal">Bytes</th>
+      <th class="py-1 pr-3 font-normal">Method</th>
+      <th class="py-1 pr-3 font-normal">Passes</th>
+      <th class="py-1 pr-3 font-normal">Renames</th>
+      <th class="py-1 pr-3 font-normal">OK</th>
+      <th class="py-1 font-normal">Error</th>
+    </tr>
+  </thead>
+  <tbody class="divide-y divide-wx-border">
   {% for f in result.files %}
-    <tr>
-      <td><code>{{ f.path }}</code></td>
-      <td>{{ f.size_bytes }}</td>
-      <td>{{ f.method }}</td>
-      <td>{{ f.passes }}</td>
-      <td>{{ f.renames }}</td>
-      <td>{% if f.ok %}<span class="log-success">yes</span>{% else %}<span class="log-error">no</span>{% endif %}</td>
-      <td class="small text-muted">{{ f.error or '' }}</td>
+    <tr class="hover:bg-white/5">
+      <td class="py-2 pr-3"><code>{{ f.path }}</code></td>
+      <td class="py-2 pr-3">{{ f.size_bytes }}</td>
+      <td class="py-2 pr-3">{{ f.method }}</td>
+      <td class="py-2 pr-3">{{ f.passes }}</td>
+      <td class="py-2 pr-3">{{ f.renames }}</td>
+      <td class="py-2 pr-3">{% if f.ok %}<span class="log-success">yes</span>{% else %}<span class="log-error">no</span>{% endif %}</td>
+      <td class="py-2 text-sm text-wx-muted">{{ f.error or '' }}</td>
     </tr>
   {% endfor %}
   </tbody>
-</table>
-</div>
+{% endcall %}
 {% endif %}
 
-<a href="{{ url_for('eraser.index') }}" class="btn btn-secondary">
-  <i class="bi bi-arrow-left"></i> New erase
-</a>
+<div class="mt-4">
+  {{ btn("New erase", icon="arrow-left", variant="outline", href=url_for('eraser.index')) }}
+</div>
 {% endblock %}

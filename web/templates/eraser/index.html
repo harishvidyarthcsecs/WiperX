@@ -3,86 +3,97 @@
 {% block title %}Secure File Eraser{% endblock %}
 
 {% block content %}
-<h3 class="mb-1"><i class="bi bi-eraser-fill"></i> Secure File &amp; Folder Eraser</h3>
-<p class="text-muted">Overwrite-based deletion mapped to NIST SP 800-88 &ldquo;Clear&rdquo;.
+<h3 class="mb-1 text-2xl font-bold"><i class="bi bi-eraser-fill"></i> Secure File &amp; Folder Eraser</h3>
+<p class="text-wx-muted">Overwrite-based deletion mapped to NIST SP 800-88 &ldquo;Clear&rdquo;.
 Each file is overwritten, truncated, renamed several times, then unlinked.</p>
 
-<div class="wipe-warning-box mb-4">
-  <i class="bi bi-exclamation-triangle-fill text-danger"></i>
+<div class="mb-4 rounded-lg border-2 border-wx-red bg-wx-red/10 p-5">
+  <i class="bi bi-exclamation-triangle-fill text-wx-red"></i>
   This <strong>permanently destroys</strong> the listed files. There is no undo.
-  <div class="small mt-2">Only paths inside <code>{{ allowed_root }}</code> may be
+  <div class="mt-2 text-sm">Only paths inside <code>{{ allowed_root }}</code> may be
     targeted. Set <code>WIPERX_ERASE_ALLOWED_ROOT</code> to change this root.</div>
 </div>
 
-<form method="POST" action="{{ url_for('eraser.run') }}" class="card p-4"
+<form method="POST" action="{{ url_for('eraser.run') }}"
+      class="rounded-xl border border-wx-border bg-wx-card p-6"
       onsubmit="return confirm('Permanently erase the listed paths?');">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
-  <h6 class="text-uppercase text-muted small mb-2" style="letter-spacing:1px">What to erase</h6>
+  <h6 class="mb-2 text-xs uppercase tracking-wider text-wx-muted">What to erase</h6>
   <div class="mb-1">
-    <div class="d-flex justify-content-between align-items-end">
-      <label class="form-label">Paths (one per line &mdash; files or folders)</label>
+    <div class="flex items-end justify-between">
+      <label class="mb-1 block text-sm text-wx-muted">Paths (one per line &mdash; files or folders)</label>
       {{ pick_button('[name="paths"]', 'append-lines', 'Browse…') }}
     </div>
-    <textarea name="paths" rows="6" class="form-control" placeholder="/data/case42/notes.txt&#10;/data/case42/photos"></textarea>
-    <small class="text-muted d-block mt-1">One file or folder per line. Folders are only
+    <textarea name="paths" rows="6" placeholder="/data/case42/notes.txt&#10;/data/case42/photos"
+              class="w-full rounded-md border border-wx-border bg-wx-dark px-3 py-2 text-wx-text
+                     focus:outline-none focus:border-wx-red focus:ring focus:ring-wx-red-dim"></textarea>
+    <small class="mt-1 block text-sm text-wx-muted">One file or folder per line. Folders are only
       touched when <em>Recurse into folders</em> below is on. <em>Browse&hellip;</em> walks the
       server's filesystem, confined to <code>{{ allowed_root }}</code>.</small>
   </div>
-  <div class="form-check mb-4">
-    <input class="form-check-input" type="checkbox" name="recursive" id="rc" checked>
-    <label class="form-check-label" for="rc">Recurse into folders</label>
-    <small class="text-muted d-block">Descend into every listed folder, erase all its files,
+  <div class="mb-4">
+    <label class="flex items-start gap-2">
+      <input type="checkbox" name="recursive" id="rc" checked class="mt-1">
+      <span>Recurse into folders</span>
+    </label>
+    <small class="block text-sm text-wx-muted">Descend into every listed folder, erase all its files,
       then remove the emptied directory tree. Off = only plain files in the list are erased.</small>
   </div>
 
-  <hr style="border-color: var(--wx-border);">
-  <h6 class="text-uppercase text-muted small mb-2" style="letter-spacing:1px">Overwrite pattern</h6>
-  <div class="row g-3 mb-1">
-    <div class="col-md-4">
-      <label class="form-label">Random passes</label>
-      <input type="number" name="passes" value="1" min="1" max="35" class="form-control">
-      <small class="text-muted d-block mt-1">Random-data overwrites written before the file is
+  <hr class="my-3 border-wx-border">
+  <h6 class="mb-2 text-xs uppercase tracking-wider text-wx-muted">Overwrite pattern</h6>
+  <div class="mb-1 grid grid-cols-1 gap-3 md:grid-cols-3">
+    <div>
+      <label class="mb-1 block text-sm text-wx-muted">Random passes</label>
+      <input type="number" name="passes" value="1" min="1" max="35"
+             class="w-full rounded-md border border-wx-border bg-wx-dark px-3 py-2 text-wx-text
+                    focus:outline-none focus:border-wx-red focus:ring focus:ring-wx-red-dim">
+      <small class="mt-1 block text-sm text-wx-muted">Random-data overwrites written before the file is
         unlinked. NIST SP 800-88 <em>Clear</em> = 1 pass.</small>
     </div>
-    <div class="col-md-4">
-      <div class="form-check mt-4 pt-1">
-        <input class="form-check-input" type="checkbox" name="zero_final" id="zf" checked>
-        <label class="form-check-label" for="zf">Final zero pass</label>
-      </div>
-      <small class="text-muted d-block">One all-zero pass written last, so the file's previous
+    <div>
+      <label class="mt-6 flex items-start gap-2">
+        <input type="checkbox" name="zero_final" id="zf" checked class="mt-1">
+        <span>Final zero pass</span>
+      </label>
+      <small class="block text-sm text-wx-muted">One all-zero pass written last, so the file's previous
         size / pattern can't be inferred from the overwrite itself.</small>
     </div>
-    <div class="col-md-4">
-      <label class="form-label">Operator</label>
-      <input type="text" name="operator" class="form-control" value="{{ current_user.username }}">
-      <small class="text-muted d-block mt-1">Recorded in the signed certificate.</small>
+    <div>
+      <label class="mb-1 block text-sm text-wx-muted">Operator</label>
+      <input type="text" name="operator" value="{{ current_user.username }}"
+             class="w-full rounded-md border border-wx-border bg-wx-dark px-3 py-2 text-wx-text
+                    focus:outline-none focus:border-wx-red focus:ring focus:ring-wx-red-dim">
+      <small class="mt-1 block text-sm text-wx-muted">Recorded in the signed certificate.</small>
     </div>
   </div>
 
-  <hr style="border-color: var(--wx-border);">
-  <h6 class="text-uppercase text-muted small mb-2" style="letter-spacing:1px">Free space (optional)</h6>
-  <div class="row g-3">
-    <div class="col-md-6">
-      <div class="d-flex justify-content-between align-items-end">
-        <label class="form-label">Also wipe free space on mount</label>
+  <hr class="my-3 border-wx-border">
+  <h6 class="mb-2 text-xs uppercase tracking-wider text-wx-muted">Free space (optional)</h6>
+  <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+    <div>
+      <div class="flex items-end justify-between">
+        <label class="mb-1 block text-sm text-wx-muted">Also wipe free space on mount</label>
         {{ pick_button('#fsmount', 'set-value', 'Browse…') }}
       </div>
-      <input type="text" name="wipe_free_mount" id="fsmount" class="form-control" placeholder="/mnt/evidence">
-      <small class="text-muted d-block mt-1">After erasing, fills every free block on this
+      <input type="text" name="wipe_free_mount" id="fsmount" placeholder="/mnt/evidence"
+             class="w-full rounded-md border border-wx-border bg-wx-dark px-3 py-2 text-wx-text
+                    focus:outline-none focus:border-wx-red focus:ring focus:ring-wx-red-dim">
+      <small class="mt-1 block text-sm text-wx-muted">After erasing, fills every free block on this
         filesystem with random data then zeros, then deletes the filler &mdash; this overwrites
         blocks freed just now <em>and</em> by earlier, unrelated deletions.</small>
     </div>
-    <div class="col-md-6">
-      <div class="form-check mt-4 pt-1">
-        <input class="form-check-input" type="checkbox" name="fstrim_after" id="ft" disabled>
-        <label class="form-check-label" for="ft">Send TRIM after (SSD, Linux only)</label>
-      </div>
-      <small class="text-muted d-block">
+    <div>
+      <label class="mt-6 flex items-start gap-2">
+        <input type="checkbox" name="fstrim_after" id="ft" disabled class="mt-1">
+        <span>Send TRIM after (SSD, Linux only)</span>
+      </label>
+      <small class="block text-sm text-wx-muted">
         Tells an SSD that the freed blocks are unused so its controller can discard them —
         a housekeeping step, not itself a secure-erase pass.
         {% if not is_linux %}
-          <strong class="text-warning d-block mt-1">Ignored on this OS (Linux-only) &mdash; disabled.</strong>
+          <strong class="mt-1 block text-wx-warning">Ignored on this OS (Linux-only) &mdash; disabled.</strong>
         {% else %}
           <span id="ft-hint">Enabled once a free-space mount is set above.</span>
         {% endif %}
@@ -90,7 +101,8 @@ Each file is overwritten, truncated, renamed several times, then unlinked.</p>
     </div>
   </div>
 
-  <button type="submit" class="btn btn-danger mt-4">
+  <button type="submit"
+          class="mt-4 inline-flex items-center gap-1.5 rounded-md bg-wx-red px-4 py-2 font-medium text-white hover:bg-[#c0392b]">
     <i class="bi bi-eraser"></i> Erase &amp; issue certificate
   </button>
 </form>
