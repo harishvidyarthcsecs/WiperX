@@ -1,41 +1,46 @@
 {% extends "base.html" %}
+{% from "_components/ui.html" import card, btn, table_wrap %}
 {% block title %}Audit Log{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <h3 class="mb-0" style="color:#e74c3c; font-weight:700; letter-spacing:2px">
+<div class="mb-6 flex items-center justify-between">
+    <h3 class="text-2xl font-bold tracking-[2px] text-wx-red">
         <i class="bi bi-file-lock"></i> AUDIT LOG
     </h3>
-    <a href="{{ url_for('dashboard.index') }}" class="btn btn-outline-secondary btn-sm">
-        <i class="bi bi-arrow-left"></i> Dashboard
-    </a>
+    {{ btn("Dashboard", icon="arrow-left", variant="outline", href=url_for('dashboard.index')) }}
 </div>
 
-<div class="card">
-    <div class="card-header small text-muted">
+{% call card() %}
+    <p class="mb-3 text-sm text-wx-muted">
         Latest {{ events|length }} events from today's <code>logs/wiperx_audit_&lt;date&gt;.log</code> (newest first)
-    </div>
-    <div class="card-body p-0">
-        {% if events %}
-        <table class="table table-hover table-sm mb-0">
-            <thead><tr><th>Time (UTC)</th><th>Event</th><th>Module</th><th>User</th><th>Data</th></tr></thead>
-            <tbody>
-                {% for e in events %}
-                <tr>
-                    <td class="small text-muted" style="white-space:nowrap">{{ e.timestamp }}</td>
-                    <td><code>{{ e.event }}</code></td>
-                    <td class="small">{{ e.module }}</td>
-                    <td class="small">{{ e.user }}</td>
-                    <td class="small text-muted" style="max-width:420px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">
-                        {{ e.data }}
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        {% else %}
-        <div class="text-center text-muted py-5">No audit events recorded yet.</div>
-        {% endif %}
-    </div>
-</div>
+    </p>
+    {% if events %}
+    {% call table_wrap() %}
+        <thead>
+            <tr class="text-left text-wx-muted">
+                <th class="py-1 pr-3 font-normal">Time (UTC)</th>
+                <th class="py-1 pr-3 font-normal">Event</th>
+                <th class="py-1 pr-3 font-normal">Module</th>
+                <th class="py-1 pr-3 font-normal">User</th>
+                <th class="py-1 font-normal">Data</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-wx-border">
+            {% for e in events %}
+            <tr class="hover:bg-white/5">
+                <td class="whitespace-nowrap py-1.5 pr-3 text-xs text-wx-muted">{{ e.timestamp }}</td>
+                <td class="py-1.5 pr-3"><code>{{ e.event }}</code></td>
+                <td class="py-1.5 pr-3 text-xs">{{ e.module }}</td>
+                <td class="py-1.5 pr-3 text-xs">{{ e.user }}</td>
+                <td class="max-w-[420px] overflow-hidden text-ellipsis whitespace-nowrap py-1.5 text-xs text-wx-muted">
+                    {{ e.data }}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    {% endcall %}
+    {% else %}
+    <div class="py-10 text-center text-wx-muted">No audit events recorded yet.</div>
+    {% endif %}
+{% endcall %}
 {% endblock %}
