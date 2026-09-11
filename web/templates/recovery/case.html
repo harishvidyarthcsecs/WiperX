@@ -1,119 +1,118 @@
 {% extends "base.html" %}
+{% from "_components/ui.html" import card, badge, btn, table_wrap %}
 {% block title %}Case {{ name }}{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="mb-6 flex flex-wrap items-start justify-between gap-3">
     <div>
-        <h3 class="mb-1" style="color:#e74c3c; font-weight:700; letter-spacing:2px">
+        <h3 class="mb-1 text-2xl font-bold tracking-[2px] text-wx-red">
             <i class="bi bi-folder2-open"></i> CASE <code>{{ name }}</code>
         </h3>
-        <p class="text-muted mb-0 small">
+        <p class="mb-0 text-sm text-wx-muted">
             {{ meta.tool_version }} &mdash; {{ meta.generated_at }} &mdash; operator {{ meta.operator }}
         </p>
     </div>
-    <div>
+    <div class="text-right">
         {% if verify.valid and verify.trusted %}
-            <span class="badge bg-success fs-6"><i class="bi bi-shield-check"></i> signature verified</span>
+            {{ badge("signature verified", "success", icon="shield-check") }}
         {% elif verify.valid %}
-            <span class="badge fs-6" style="background:#f39c12"><i class="bi bi-shield-exclamation"></i> signed (untrusted key)</span>
+            {{ badge("signed (untrusted key)", "warning", icon="shield-exclamation") }}
         {% else %}
-            <span class="badge bg-danger fs-6"><i class="bi bi-shield-x"></i> unsigned / invalid</span>
+            {{ badge("unsigned / invalid", "danger", icon="shield-x") }}
         {% endif %}
-        <div class="small text-muted mt-1">key {{ verify.key_id or "n/a" }} &mdash; {{ verify.reason }}</div>
+        <div class="mt-1 text-sm text-wx-muted">key {{ verify.key_id or "n/a" }} &mdash; {{ verify.reason }}</div>
     </div>
 </div>
 
-<div class="row g-3 mb-4">
-    <div class="col-md-6">
-        <div class="card h-100">
-            <div class="card-header"><strong><i class="bi bi-link-45deg"></i> Chain of Custody</strong></div>
-            <div class="card-body small">
-                <div><span class="text-muted">Source:</span> <code>{{ case.source.path }}</code>
-                    ({{ case.source.type }}, {{ case.source.size_bytes }} bytes)</div>
-                <div><span class="text-muted">Source SHA-256:</span>
-                    <code style="word-break:break-all">{{ coc.source_sha256 or case.source.sha256 }}</code></div>
-                <div><span class="text-muted">Read-only:</span> {{ coc.read_only }}</div>
-                <div><span class="text-muted">Reads logged:</span> {{ coc.reads_logged }}</div>
-                <div><span class="text-muted">Started:</span> {{ case.started_at }}</div>
-                <div><span class="text-muted">Elapsed:</span> {{ meta.elapsed_s }} s</div>
-            </div>
+<div class="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+    {% call card(title="Chain of Custody", icon="link-45deg") %}
+        <div class="space-y-1 text-sm">
+            <div><span class="text-wx-muted">Source:</span> <code>{{ case.source.path }}</code>
+                ({{ case.source.type }}, {{ case.source.size_bytes }} bytes)</div>
+            <div><span class="text-wx-muted">Source SHA-256:</span>
+                <code class="break-all">{{ coc.source_sha256 or case.source.sha256 }}</code></div>
+            <div><span class="text-wx-muted">Read-only:</span> {{ coc.read_only }}</div>
+            <div><span class="text-wx-muted">Reads logged:</span> {{ coc.reads_logged }}</div>
+            <div><span class="text-wx-muted">Started:</span> {{ case.started_at }}</div>
+            <div><span class="text-wx-muted">Elapsed:</span> {{ meta.elapsed_s }} s</div>
         </div>
-    </div>
-    <div class="col-md-6">
-        <div class="card h-100">
-            <div class="card-header"><strong><i class="bi bi-bar-chart"></i> Summary</strong></div>
-            <div class="card-body small">
-                <div><span class="text-muted">Total recovered:</span> <strong>{{ summary.total }}</strong></div>
-                <div><span class="text-muted">By method:</span> {{ summary.by_method }}</div>
-                <div><span class="text-muted">By category:</span> {{ summary.by_category }}</div>
-                <div><span class="text-muted">By validation:</span> {{ summary.by_validation }}</div>
-                <div><span class="text-muted">By confidence:</span> {{ summary.by_confidence_band }}</div>
-            </div>
+    {% endcall %}
+    {% call card(title="Summary", icon="bar-chart") %}
+        <div class="space-y-1 text-sm">
+            <div><span class="text-wx-muted">Total recovered:</span> <strong>{{ summary.total }}</strong></div>
+            <div><span class="text-wx-muted">By method:</span> {{ summary.by_method }}</div>
+            <div><span class="text-wx-muted">By category:</span> {{ summary.by_category }}</div>
+            <div><span class="text-wx-muted">By validation:</span> {{ summary.by_validation }}</div>
+            <div><span class="text-wx-muted">By confidence:</span> {{ summary.by_confidence_band }}</div>
         </div>
-    </div>
+    {% endcall %}
 </div>
 
-<div class="card">
-    <div class="card-header"><strong><i class="bi bi-files"></i> Recovered Files</strong></div>
-    <div class="card-body p-0">
-        {% if files %}
-        <table class="table table-hover mb-0 align-middle">
-            <thead><tr>
-                <th>#</th><th>Preview</th><th>Name</th><th>Category</th><th>Size</th>
-                <th>Method</th><th>Validation</th><th>Confidence</th><th></th>
-            </tr></thead>
-            <tbody>
-                {% for f in files %}
-                <tr>
-                    <td>{{ f.seq }}</td>
-                    <td>
-                        {% if f.category == "photo" and f.validation_state == "intact" %}
-                        <img src="{{ url_for('recovery.case_file', name=name, fname=f.recovered_name) }}"
-                             alt="preview" style="max-height:48px; max-width:72px; border:1px solid #30363d">
-                        {% else %}
-                        <span class="text-muted"><i class="bi bi-file-earmark"></i></span>
-                        {% endif %}
-                    </td>
-                    <td><code>{{ f.recovered_name }}</code>
-                        <div class="small text-muted">{{ f.signature }} @ {{ "%#x"|format(f.offset) }}</div>
-                    </td>
-                    <td>{{ f.category }}</td>
-                    <td>{{ f.size }}</td>
-                    <td><span class="badge bg-secondary">{{ f.carve_method or f.source_method }}</span></td>
-                    <td>
-                        {% if f.validation_state == "intact" %}
-                            <span class="badge bg-success">intact</span>
-                        {% elif f.validation_state == "partial" %}
-                            <span class="badge" style="background:#f39c12">partial</span>
-                        {% elif f.validation_state == "corrupt" %}
-                            <span class="badge bg-danger">corrupt</span>
-                        {% else %}
-                            <span class="badge bg-secondary">unchecked</span>
-                        {% endif %}
-                    </td>
-                    <td>
-                        {{ f.confidence_band }}
-                        <span class="text-muted small">({{ "%.2f"|format(f.confidence_score or 0) }})</span>
-                    </td>
-                    <td>
-                        <a href="{{ url_for('recovery.case_file', name=name, fname=f.recovered_name) }}?dl=1"
-                           class="btn btn-sm btn-outline-primary">
-                            <i class="bi bi-download"></i>
-                        </a>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        {% else %}
-        <div class="text-center text-muted py-4">No files were recovered in this case.</div>
-        {% endif %}
-    </div>
-</div>
+{% call card(title="Recovered Files", icon="files") %}
+    {% if files %}
+    {% call table_wrap() %}
+        <thead>
+            <tr class="text-left text-wx-muted">
+                <th class="py-1 pr-3 font-normal">#</th>
+                <th class="py-1 pr-3 font-normal">Preview</th>
+                <th class="py-1 pr-3 font-normal">Name</th>
+                <th class="py-1 pr-3 font-normal">Category</th>
+                <th class="py-1 pr-3 font-normal">Size</th>
+                <th class="py-1 pr-3 font-normal">Method</th>
+                <th class="py-1 pr-3 font-normal">Validation</th>
+                <th class="py-1 pr-3 font-normal">Confidence</th>
+                <th class="py-1 font-normal"></th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-wx-border">
+            {% for f in files %}
+            <tr class="hover:bg-white/5">
+                <td class="py-2 pr-3">{{ f.seq }}</td>
+                <td class="py-2 pr-3">
+                    {% if f.category == "photo" and f.validation_state == "intact" %}
+                    <img src="{{ url_for('recovery.case_file', name=name, fname=f.recovered_name) }}"
+                         alt="preview" class="max-h-12 max-w-[72px] rounded border border-wx-border">
+                    {% else %}
+                    <span class="text-wx-muted"><i class="bi bi-file-earmark"></i></span>
+                    {% endif %}
+                </td>
+                <td class="py-2 pr-3"><code>{{ f.recovered_name }}</code>
+                    <div class="text-xs text-wx-muted">{{ f.signature }} @ {{ "%#x"|format(f.offset) }}</div>
+                </td>
+                <td class="py-2 pr-3">{{ f.category }}</td>
+                <td class="py-2 pr-3">{{ f.size }}</td>
+                <td class="py-2 pr-3">{{ badge(f.carve_method or f.source_method) }}</td>
+                <td class="py-2 pr-3">
+                    {% if f.validation_state == "intact" %}
+                        {{ badge("intact", "success") }}
+                    {% elif f.validation_state == "partial" %}
+                        {{ badge("partial", "warning") }}
+                    {% elif f.validation_state == "corrupt" %}
+                        {{ badge("corrupt", "danger") }}
+                    {% else %}
+                        {{ badge("unchecked") }}
+                    {% endif %}
+                </td>
+                <td class="py-2 pr-3">
+                    {{ f.confidence_band }}
+                    <span class="text-sm text-wx-muted">({{ "%.2f"|format(f.confidence_score or 0) }})</span>
+                </td>
+                <td class="py-2">
+                    <a href="{{ url_for('recovery.case_file', name=name, fname=f.recovered_name) }}?dl=1"
+                       class="inline-flex items-center gap-1.5 rounded-md border border-wx-border px-2 py-1 text-sm text-wx-text no-underline hover:bg-white/5">
+                        <i class="bi bi-download"></i>
+                    </a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    {% endcall %}
+    {% else %}
+    <div class="py-6 text-center text-wx-muted">No files were recovered in this case.</div>
+    {% endif %}
+{% endcall %}
 
 <div class="mt-3">
-    <a href="{{ url_for('recovery.cases') }}" class="btn btn-outline-secondary btn-sm">
-        <i class="bi bi-arrow-left"></i> All Cases
-    </a>
+    {{ btn("All Cases", icon="arrow-left", variant="outline", href=url_for('recovery.cases')) }}
 </div>
 {% endblock %}

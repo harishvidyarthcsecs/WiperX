@@ -1,106 +1,100 @@
 {% extends "base.html" %}
 {% from "_components/path_picker.html" import pick_button, picker_modal %}
+{% from "_components/ui.html" import card, btn %}
 {% block title %}Recover{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="mb-6 flex items-center justify-between">
     <div>
-        <h3 class="mb-1" style="color:#e74c3c; font-weight:700; letter-spacing:2px">
+        <h3 class="mb-1 text-2xl font-bold tracking-[2px] text-wx-red">
             <i class="bi bi-life-preserver"></i> FILE CARVING &amp; RECOVERY
         </h3>
-        <p class="text-muted mb-0 small">Read-only forensic recovery from a device or image (Module 3)</p>
+        <p class="mb-0 text-sm text-wx-muted">Read-only forensic recovery from a device or image (Module 3)</p>
     </div>
-    <a href="{{ url_for('recovery.cases') }}" class="btn btn-outline-secondary btn-sm">
-        <i class="bi bi-folder2-open"></i> Past Cases
-    </a>
+    {{ btn("Past Cases", icon="folder2-open", variant="outline", href=url_for('recovery.cases')) }}
 </div>
 
-<div class="row">
-    <div class="col-lg-8">
-        <div class="card">
-            <div class="card-header"><strong><i class="bi bi-search"></i> New Recovery</strong></div>
-            <div class="card-body">
-                <form method="POST" action="{{ url_for('recovery.index') }}">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <div class="mb-3">
-                        <div class="d-flex justify-content-between align-items-end">
-                            <label class="form-label">Source (block device or image file)</label>
-                            {{ pick_button('#recover-source', 'set-value', 'Browse image…') }}
-                        </div>
-                        <input type="text" name="source" id="recover-source" class="form-control"
-                               placeholder="/path/to/disk.img  or  /dev/sdX" required>
-                        <div class="form-text">
-                            The source is opened <strong>read-only</strong>. Recovering from a
-                            <code>/dev/*</code> device requires the administrator role and must be
-                            typed in directly &mdash; <em>Browse image&hellip;</em> only walks
-                            {% if allowed_root %}<code>{{ allowed_root }}</code>{% else %}the
-                            server's sandbox root{% endif %}.
-                        </div>
+<div class="grid grid-cols-1 gap-3 lg:grid-cols-12">
+    <div class="lg:col-span-8">
+        {% call card(title="New Recovery", icon="search") %}
+            <form method="POST" action="{{ url_for('recovery.index') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="mb-3">
+                    <div class="flex items-end justify-between">
+                        <label class="mb-1 block text-sm text-wx-muted">Source (block device or image file)</label>
+                        {{ pick_button('#recover-source', 'set-value', 'Browse image…') }}
                     </div>
-
-                    <div class="mb-3">
-                        <label class="form-label">Mode</label>
-                        <div class="list-group">
-                            <label class="list-group-item d-flex gap-2" style="background:transparent; border-color:var(--wx-border)">
-                                <input class="form-check-input mt-1" type="radio" name="mode" value="full" checked>
-                                <span>
-                                    <strong>Full</strong> — filesystem undelete pass, then signature carving
-                                    <small class="d-block text-muted">Best coverage: recovers still-indexed deleted files first, then scans raw bytes for anything the filesystem no longer knows about.</small>
-                                </span>
-                            </label>
-                            <label class="list-group-item d-flex gap-2" style="background:transparent; border-color:var(--wx-border)">
-                                <input class="form-check-input mt-1" type="radio" name="mode" value="carve-only">
-                                <span>
-                                    <strong>Carve only</strong> — skip the filesystem pass
-                                    <small class="d-block text-muted">Signature scan only. Use on raw images or when the filesystem metadata is unreadable/wiped.</small>
-                                </span>
-                            </label>
-                            <label class="list-group-item d-flex gap-2" style="background:transparent; border-color:var(--wx-border)">
-                                <input class="form-check-input mt-1" type="radio" name="mode" value="fs-only">
-                                <span>
-                                    <strong>Filesystem only</strong> — skip carving
-                                    <small class="d-block text-muted">Fastest. Only recovers files the filesystem still has a record of.</small>
-                                </span>
-                            </label>
-                        </div>
+                    <input type="text" name="source" id="recover-source" required
+                           placeholder="/path/to/disk.img  or  /dev/sdX"
+                           class="w-full rounded-md border border-wx-border bg-wx-dark px-3 py-2 text-wx-text
+                                  focus:outline-none focus:border-wx-red focus:ring focus:ring-wx-red-dim">
+                    <div class="mt-1 text-sm text-wx-muted">
+                        The source is opened <strong>read-only</strong>. Recovering from a
+                        <code>/dev/*</code> device requires the administrator role and must be
+                        typed in directly &mdash; <em>Browse image&hellip;</em> only walks
+                        {% if allowed_root %}<code>{{ allowed_root }}</code>{% else %}the
+                        server's sandbox root{% endif %}.
                     </div>
+                </div>
 
-                    <div class="form-check mb-3">
-                        <input class="form-check-input" type="checkbox" name="allow_mounted" id="allow-mounted">
-                        <label class="form-check-label" for="allow-mounted">
-                            Allow a read-write mounted device
+                <div class="mb-3">
+                    <label class="mb-1 block text-sm text-wx-muted">Mode</label>
+                    <div class="divide-y divide-wx-border rounded-md border border-wx-border">
+                        <label class="flex gap-2 p-3">
+                            <input type="radio" name="mode" value="full" checked class="mt-1">
+                            <span>
+                                <strong>Full</strong> — filesystem undelete pass, then signature carving
+                                <small class="block text-wx-muted">Best coverage: recovers still-indexed deleted files first, then scans raw bytes for anything the filesystem no longer knows about.</small>
+                            </span>
                         </label>
-                        <small class="text-muted d-block">Unsafe — concurrent writes to a live, mounted
-                            filesystem can corrupt the recovery. Leave off unless you understand the risk.</small>
+                        <label class="flex gap-2 p-3">
+                            <input type="radio" name="mode" value="carve-only" class="mt-1">
+                            <span>
+                                <strong>Carve only</strong> — skip the filesystem pass
+                                <small class="block text-wx-muted">Signature scan only. Use on raw images or when the filesystem metadata is unreadable/wiped.</small>
+                            </span>
+                        </label>
+                        <label class="flex gap-2 p-3">
+                            <input type="radio" name="mode" value="fs-only" class="mt-1">
+                            <span>
+                                <strong>Filesystem only</strong> — skip carving
+                                <small class="block text-wx-muted">Fastest. Only recovers files the filesystem still has a record of.</small>
+                            </span>
+                        </label>
                     </div>
+                </div>
 
-                    <div class="mb-3">
-                        <label class="form-label">Operator</label>
-                        <input type="text" name="operator" class="form-control"
-                               value="{{ current_user.username }}">
-                    </div>
+                <div class="mb-3">
+                    <label class="flex items-start gap-2">
+                        <input type="checkbox" name="allow_mounted" id="allow-mounted" class="mt-1">
+                        <span>Allow a read-write mounted device</span>
+                    </label>
+                    <small class="block text-wx-muted">Unsafe — concurrent writes to a live, mounted
+                        filesystem can corrupt the recovery. Leave off unless you understand the risk.</small>
+                </div>
 
-                    <button type="submit" class="btn btn-danger">
-                        <i class="bi bi-play-fill"></i> Start Recovery
-                    </button>
-                </form>
-            </div>
-        </div>
+                <div class="mb-3">
+                    <label class="mb-1 block text-sm text-wx-muted">Operator</label>
+                    <input type="text" name="operator" value="{{ current_user.username }}"
+                           class="w-full rounded-md border border-wx-border bg-wx-dark px-3 py-2 text-wx-text
+                                  focus:outline-none focus:border-wx-red focus:ring focus:ring-wx-red-dim">
+                </div>
+
+                {{ btn("Start Recovery", icon="play-fill", variant="primary", type="submit") }}
+            </form>
+        {% endcall %}
     </div>
-    <div class="col-lg-4">
-        <div class="card">
-            <div class="card-header"><strong><i class="bi bi-info-circle"></i> Notes</strong></div>
-            <div class="card-body small text-muted">
-                <ul class="mb-0 ps-3">
-                    <li>Source opened <strong>read-only</strong> — nothing is written back to it.</li>
-                    <li>Recovered files land in <code>cases/&lt;id&gt;/recovered/</code>.</li>
-                    <li>An Ed25519-signed <code>case_report.json</code> carries a per-file
-                        SHA-256 manifest and a source chain-of-custody header.</li>
-                    <li>Fragmented-file support is limited to contiguous files and
-                        bifragment-gap JPEG.</li>
-                </ul>
-            </div>
-        </div>
+    <div class="lg:col-span-4">
+        {% call card(title="Notes", icon="info-circle") %}
+            <ul class="mb-0 list-disc space-y-1 pl-4 text-sm text-wx-muted">
+                <li>Source opened <strong>read-only</strong> — nothing is written back to it.</li>
+                <li>Recovered files land in <code>cases/&lt;id&gt;/recovered/</code>.</li>
+                <li>An Ed25519-signed <code>case_report.json</code> carries a per-file
+                    SHA-256 manifest and a source chain-of-custody header.</li>
+                <li>Fragmented-file support is limited to contiguous files and
+                    bifragment-gap JPEG.</li>
+            </ul>
+        {% endcall %}
     </div>
 </div>
 

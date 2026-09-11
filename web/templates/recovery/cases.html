@@ -1,57 +1,60 @@
 {% extends "base.html" %}
+{% from "_components/ui.html" import card, badge, btn, table_wrap %}
 {% block title %}Recovery Cases{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <h3 class="mb-0" style="color:#e74c3c; font-weight:700; letter-spacing:2px">
+<div class="mb-6 flex items-center justify-between">
+    <h3 class="text-2xl font-bold tracking-[2px] text-wx-red">
         <i class="bi bi-folder2-open"></i> RECOVERY CASES
     </h3>
-    <a href="{{ url_for('recovery.index') }}" class="btn btn-danger btn-sm">
-        <i class="bi bi-plus-circle"></i> New Recovery
-    </a>
+    {{ btn("New Recovery", icon="plus-circle", variant="primary", href=url_for('recovery.index')) }}
 </div>
 
-<div class="card">
-    <div class="card-body p-0">
-        {% if cases %}
-        <table class="table table-hover mb-0">
-            <thead><tr>
-                <th>Case</th><th>Files</th><th>Operator</th><th>Generated</th>
-                <th>Signature</th><th></th>
-            </tr></thead>
-            <tbody>
-                {% for c in cases %}
-                <tr>
-                    <td><code>{{ c.name }}</code></td>
-                    <td>{{ c.total }}</td>
-                    <td>{{ c.operator }}</td>
-                    <td class="small text-muted">{{ c.generated_at }}</td>
-                    <td>
-                        {% if c.valid and c.trusted %}
-                            <span class="badge bg-success">verified</span>
-                        {% elif c.valid %}
-                            <span class="badge" style="background:#f39c12">signed (untrusted key)</span>
-                        {% else %}
-                            <span class="badge bg-danger">unsigned / invalid</span>
-                        {% endif %}
-                    </td>
-                    <td>
-                        <a href="{{ url_for('recovery.case_detail', name=c.name) }}"
-                           class="btn btn-sm btn-outline-primary">
-                            <i class="bi bi-eye"></i> View
-                        </a>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        {% else %}
-        <div class="text-center text-muted py-5">
-            <i class="bi bi-folder2" style="font-size:2rem"></i>
-            <p class="mt-2 mb-3">No recovery cases yet.</p>
-            <a href="{{ url_for('recovery.index') }}" class="btn btn-sm btn-outline-secondary">Start a recovery</a>
-        </div>
-        {% endif %}
+{% call card() %}
+    {% if cases %}
+    {% call table_wrap() %}
+        <thead>
+            <tr class="text-left text-wx-muted">
+                <th class="py-1 pr-3 font-normal">Case</th>
+                <th class="py-1 pr-3 font-normal">Files</th>
+                <th class="py-1 pr-3 font-normal">Operator</th>
+                <th class="py-1 pr-3 font-normal">Generated</th>
+                <th class="py-1 pr-3 font-normal">Signature</th>
+                <th class="py-1 font-normal"></th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-wx-border">
+            {% for c in cases %}
+            <tr class="hover:bg-white/5">
+                <td class="py-2 pr-3"><code>{{ c.name }}</code></td>
+                <td class="py-2 pr-3">{{ c.total }}</td>
+                <td class="py-2 pr-3">{{ c.operator }}</td>
+                <td class="py-2 pr-3 text-xs text-wx-muted">{{ c.generated_at }}</td>
+                <td class="py-2 pr-3">
+                    {% if c.valid and c.trusted %}
+                        {{ badge("verified", "success") }}
+                    {% elif c.valid %}
+                        {{ badge("signed (untrusted key)", "warning") }}
+                    {% else %}
+                        {{ badge("unsigned / invalid", "danger") }}
+                    {% endif %}
+                </td>
+                <td class="py-2">
+                    <a href="{{ url_for('recovery.case_detail', name=c.name) }}"
+                       class="inline-flex items-center gap-1.5 rounded-md border border-wx-border px-2 py-1 text-sm text-wx-text no-underline hover:bg-white/5">
+                        <i class="bi bi-eye"></i> View
+                    </a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    {% endcall %}
+    {% else %}
+    <div class="py-10 text-center text-wx-muted">
+        <i class="bi bi-folder2 text-4xl"></i>
+        <p class="mt-2 mb-3">No recovery cases yet.</p>
+        {{ btn("Start a recovery", variant="outline", href=url_for('recovery.index')) }}
     </div>
-</div>
+    {% endif %}
+{% endcall %}
 {% endblock %}
