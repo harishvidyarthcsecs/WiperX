@@ -33,3 +33,9 @@
   --font-sans: "Segoe UI", ui-sans-serif, system-ui, sans-serif;
   --font-mono: Consolas, Monaco, ui-monospace, "SFMono-Regular", monospace;
 }
+
+/* Alpine hides [x-cloak] elements once it boots; this rule hides them before
+   that so the mobile-drawer backdrop can't flash visible on first paint. */
+[x-cloak] {
+  display: none !important;
+}

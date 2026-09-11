@@ -4,111 +4,64 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WiperX — Login</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <style>
-        body {
-            background: #0d1117;
-            color: #c9d1d9;
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        .login-card {
-            background: #161b22;
-            border: 1px solid #30363d;
-            border-top: 3px solid #e74c3c;
-            border-radius: 12px;
-            padding: 40px;
-            width: 100%;
-            max-width: 420px;
-        }
-        .logo {
-            font-size: 2.5rem;
-            font-weight: 900;
-            color: #e74c3c;
-            letter-spacing: 6px;
-            text-align: center;
-            margin-bottom: 4px;
-        }
-        .logo-sub {
-            text-align: center;
-            color: #8b949e;
-            font-size: 0.82rem;
-            margin-bottom: 32px;
-            letter-spacing: 2px;
-        }
-        .form-control {
-            background: #0d1117;
-            border: 1px solid #30363d;
-            color: #c9d1d9;
-        }
-        .form-control:focus {
-            background: #0d1117;
-            border-color: #e74c3c;
-            color: #fff;
-            box-shadow: 0 0 0 3px rgba(231, 76, 60, 0.15);
-        }
-        .btn-login {
-            background: #e74c3c;
-            border: none;
-            width: 100%;
-            padding: 12px;
-            font-weight: 600;
-            letter-spacing: 1px;
-        }
-        .btn-login:hover { background: #c0392b; }
-        .demo-creds {
-            background: rgba(88, 166, 255, 0.08);
-            border: 1px solid #30363d;
-            border-radius: 8px;
-            padding: 12px;
-            font-size: 0.78rem;
-            color: #8b949e;
-        }
-    </style>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='%23e74c3c' d='M8 0 1 2.5v5.2c0 4 3 6.7 7 8.3 4-1.6 7-4.3 7-8.3V2.5L8 0Zm3.1 5.4-3.9 3.9-1.9-1.9.9-.9 1 1 3-3 .9.9Z'/%3E%3C/svg%3E">
+    <link href="{{ url_for('static', filename='css/bootstrap-icons.min.css') }}" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/app.css') }}" rel="stylesheet">
 </head>
-<body>
-    <div class="login-card">
-        <div class="logo"><i class="bi bi-shield-fill-x"></i> WIPERX</div>
-        <div class="logo-sub">DISK SANITIZATION SYSTEM</div>
+<body class="min-h-screen flex items-center justify-center bg-wx-dark text-wx-text font-sans">
+    <div class="w-full max-w-md rounded-xl border border-wx-border border-t-4 border-t-wx-red bg-wx-card p-10">
+        <div class="text-center text-4xl font-black tracking-[6px] text-wx-red mb-1">
+            <i class="bi bi-shield-fill-x"></i> WIPERX
+        </div>
+        <div class="text-center text-wx-muted text-xs tracking-[2px] mb-8">DISK SANITIZATION SYSTEM</div>
 
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% for category, message in messages %}
-            <div class="alert alert-{{ category }} py-2 mb-3" style="font-size:0.85rem">{{ message }}</div>
+            <div class="mb-3 rounded-md px-3 py-2 text-sm
+                        {% if category == 'success' %}bg-wx-success/15 text-wx-success
+                        {% elif category == 'danger' %}bg-wx-red/15 text-wx-red
+                        {% elif category == 'warning' %}bg-wx-warning/15 text-wx-warning
+                        {% else %}bg-wx-info/15 text-wx-info{% endif %}">
+                {{ message }}
+            </div>
             {% endfor %}
         {% endwith %}
 
         <form method="POST" action="{{ url_for('auth.login') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="mb-3">
-                <label class="form-label text-muted small">USERNAME</label>
-                <div class="input-group">
-                    <span class="input-group-text" style="background:#0d1117; border-color:#30363d; color:#8b949e">
+                <label class="block text-wx-muted text-xs mb-1">USERNAME</label>
+                <div class="flex">
+                    <span class="flex items-center px-3 rounded-l-md border border-r-0 border-wx-border bg-wx-dark text-wx-muted">
                         <i class="bi bi-person"></i>
                     </span>
-                    <input type="text" name="username" class="form-control" required autofocus>
+                    <input type="text" name="username" required autofocus
+                           class="flex-1 min-w-0 rounded-r-md border border-wx-border bg-wx-dark text-wx-text px-3 py-2
+                                  focus:outline-none focus:border-wx-red focus:ring focus:ring-wx-red-dim">
                 </div>
             </div>
             <div class="mb-4">
-                <label class="form-label text-muted small">PASSWORD</label>
-                <div class="input-group">
-                    <span class="input-group-text" style="background:#0d1117; border-color:#30363d; color:#8b949e">
+                <label class="block text-wx-muted text-xs mb-1">PASSWORD</label>
+                <div class="flex">
+                    <span class="flex items-center px-3 rounded-l-md border border-r-0 border-wx-border bg-wx-dark text-wx-muted">
                         <i class="bi bi-lock"></i>
                     </span>
-                    <input type="password" name="password" class="form-control" required>
+                    <input type="password" name="password" required
+                           class="flex-1 min-w-0 rounded-r-md border border-wx-border bg-wx-dark text-wx-text px-3 py-2
+                                  focus:outline-none focus:border-wx-red focus:ring focus:ring-wx-red-dim">
                 </div>
             </div>
-            <button type="submit" class="btn btn-login btn-danger text-white">
+            <button type="submit"
+                    class="w-full rounded-md bg-wx-red hover:bg-[#c0392b] text-white font-semibold tracking-wide
+                           py-3 transition-colors focus:outline-none focus:ring focus:ring-wx-red-dim">
                 <i class="bi bi-box-arrow-in-right me-2"></i>SIGN IN
             </button>
         </form>
 
-        <div class="demo-creds mt-4">
-            <strong style="color:#58a6ff">Demo Credentials</strong><br>
+        <div class="mt-4 rounded-lg border border-wx-border bg-wx-info/10 p-3 text-xs text-wx-muted">
+            <strong class="text-wx-info">Demo Credentials</strong><br>
             admin / admin123 &nbsp;|&nbsp; operator / operator123 &nbsp;|&nbsp; viewer / viewer123<br>
-            <span class="text-warning">⚠ Change before production deployment</span>
+            <span class="text-wx-warning">⚠ Change before production deployment</span>
         </div>
     </div>
 </body>

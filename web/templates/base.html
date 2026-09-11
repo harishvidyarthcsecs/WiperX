@@ -9,12 +9,14 @@
     <link href="{{ url_for('static', filename='css/bootstrap.min.css') }}" rel="stylesheet">
     <link href="{{ url_for('static', filename='css/bootstrap-icons.min.css') }}" rel="stylesheet">
     <!-- Tailwind utilities (theme tokens + utility layer only, no preflight -
-         see web/static/src/input.css) - available for new markup; the
-         Bootstrap-based markup below is being converted to it page by page. -->
+         see web/static/src/input.css) drive the shell below; Bootstrap above
+         still styles each page's content area until its page-pass conversion
+         lands. -->
     <link href="{{ url_for('static', filename='css/app.css') }}" rel="stylesheet">
-    <!-- Alpine.js, vendored (~15KB) - not yet driving any markup below. -->
     <script defer src="{{ url_for('static', filename='js/alpine.min.js') }}"></script>
     <style>
+        /* Legacy tokens + component classes still used by unconverted pages'
+           content blocks. Shrinks as the page pass proceeds. */
         :root {
             --wx-red: #e74c3c;
             --wx-dark: #0d1117;
@@ -22,179 +24,144 @@
             --wx-border: #30363d;
             --wx-text: #c9d1d9;
         }
-        body {
-            background-color: var(--wx-dark);
-            color: var(--wx-text);
-            font-family: 'Segoe UI', system-ui, sans-serif;
-        }
-        .navbar {
-            background: linear-gradient(90deg, #0d1117, #1a0a0a) !important;
-            border-bottom: 2px solid var(--wx-red);
-        }
-        .navbar-brand {
-            font-size: 1.4rem;
-            font-weight: 700;
-            color: var(--wx-red) !important;
-            letter-spacing: 3px;
-        }
-        .sidebar {
-            background: var(--wx-card);
-            border-right: 1px solid var(--wx-border);
-            min-height: calc(100vh - 56px);
-        }
-        .sidebar .nav-link {
-            color: #8b949e;
-            border-radius: 6px;
-            margin: 2px 8px;
-            padding: 8px 14px;
-            transition: all 0.2s;
-        }
-        .sidebar .nav-link:hover, .sidebar .nav-link.active {
-            color: #fff;
-            background: rgba(231, 76, 60, 0.15);
-            border-left: 3px solid var(--wx-red);
-        }
-        .sidebar .nav-link i { margin-right: 8px; }
-        .card {
-            background: var(--wx-card);
-            border: 1px solid var(--wx-border);
-            border-radius: 10px;
-        }
-        .card-header {
-            border-bottom: 1px solid var(--wx-border);
-            background: rgba(231, 76, 60, 0.08);
-        }
+        .card { background: var(--wx-card); border: 1px solid var(--wx-border); border-radius: 10px; }
+        .card-header { border-bottom: 1px solid var(--wx-border); background: rgba(231, 76, 60, 0.08); }
         .btn-danger { background-color: var(--wx-red); border-color: var(--wx-red); }
         .badge-system { background: #e74c3c !important; }
         .badge-mounted { background: #f39c12 !important; }
         .badge-ok { background: #27ae60 !important; }
         .log-panel {
-            background: #0d1117;
-            border: 1px solid var(--wx-border);
-            border-radius: 8px;
-            height: 400px;
-            overflow-y: auto;
-            font-family: 'Consolas', 'Monaco', monospace;
-            font-size: 0.82rem;
-            padding: 12px;
+            background: #0d1117; border: 1px solid var(--wx-border); border-radius: 8px;
+            height: 400px; overflow-y: auto; font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.82rem; padding: 12px;
         }
         .log-line { margin: 0; padding: 1px 0; }
-        .log-error { color: #e74c3c; }
-        .log-warning { color: #f39c12; }
-        .log-success { color: #27ae60; }
-        .log-info { color: #58a6ff; }
-        .stat-card {
-            border-left: 4px solid var(--wx-red);
-            transition: transform 0.2s;
-        }
+        .log-error { color: #e74c3c; } .log-warning { color: #f39c12; }
+        .log-success { color: #27ae60; } .log-info { color: #58a6ff; }
+        .stat-card { border-left: 4px solid var(--wx-red); transition: transform 0.2s; }
         .stat-card:hover { transform: translateY(-2px); }
         table.table { color: var(--wx-text); }
         table.table thead { border-bottom: 2px solid var(--wx-red); }
         .table > :not(caption) > * > * { background-color: transparent; color: inherit; }
         .wipe-warning-box {
-            background: rgba(231, 76, 60, 0.1);
-            border: 2px solid var(--wx-red);
-            border-radius: 8px;
-            padding: 20px;
+            background: rgba(231, 76, 60, 0.1); border: 2px solid var(--wx-red);
+            border-radius: 8px; padding: 20px;
         }
     </style>
     {% block extra_css %}{% endblock %}
 </head>
-<body>
-    <!-- Navbar -->
-    <nav class="navbar navbar-dark px-3">
-        <a class="navbar-brand" href="{{ url_for('dashboard.index') }}">
-            <i class="bi bi-shield-fill-x"></i> WIPERX
-        </a>
+<body class="bg-wx-dark text-wx-text font-sans min-h-screen" x-data="{ sidebarOpen: false }">
+    <!-- Top bar -->
+    <header class="sticky top-0 z-40 flex items-center justify-between gap-3 border-b-2 border-wx-red
+                    bg-gradient-to-r from-wx-dark to-[#1a0a0a] px-4 py-3">
+        <div class="flex items-center gap-3">
+            {% if current_user.is_authenticated %}
+            <button type="button" class="md:hidden text-wx-muted hover:text-white" aria-label="Open menu"
+                    @click="sidebarOpen = true">
+                <i class="bi bi-list text-2xl"></i>
+            </button>
+            {% endif %}
+            <a class="text-2xl font-bold tracking-[3px] text-wx-red" href="{{ url_for('dashboard.index') }}">
+                <i class="bi bi-shield-fill-x"></i> WIPERX
+            </a>
+        </div>
         {% if current_user.is_authenticated %}
-        <div class="d-flex align-items-center gap-3">
-            <span class="text-muted small">
+        <div class="flex items-center gap-3">
+            <span class="text-wx-muted text-sm hidden sm:inline-flex items-center gap-1">
                 <i class="bi bi-person-circle"></i>
                 {{ current_user.display_name }}
-                <span class="badge ms-1" style="background: #2d3748; font-size:0.7rem">
+                <span class="ml-1 rounded bg-[#2d3748] px-1.5 py-0.5 text-[0.7rem]">
                     {{ current_user.role.upper() }}
                 </span>
             </span>
-            <a href="{{ url_for('auth.logout') }}" class="btn btn-outline-danger btn-sm">
+            <a href="{{ url_for('auth.logout') }}"
+               class="inline-flex items-center gap-1 rounded-md border border-wx-red px-3 py-1.5 text-sm
+                      text-wx-red hover:bg-wx-red hover:text-white transition-colors">
                 <i class="bi bi-box-arrow-right"></i> Logout
             </a>
         </div>
         {% endif %}
-    </nav>
+    </header>
 
-    <div class="container-fluid">
-        <div class="row">
-            {% if current_user.is_authenticated %}
-            <!-- Sidebar -->
-            <div class="col-md-2 sidebar py-3 px-0">
-                <ul class="nav flex-column">
-                    <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint == 'dashboard.index' %}active{% endif %}"
-                           href="{{ url_for('dashboard.index') }}">
-                            <i class="bi bi-speedometer2"></i> Dashboard
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link {% if 'machines' in (request.endpoint or '') %}active{% endif %}"
-                           href="{{ url_for('machines.index') }}">
-                            <i class="bi bi-pc-display"></i> Machines
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link {% if 'disks' in (request.endpoint or '') %}active{% endif %}"
-                           href="{{ url_for('disks.scan_local') }}">
-                            <i class="bi bi-hdd"></i> Scan Disks
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link {% if 'eraser' in (request.endpoint or '') %}active{% endif %}"
-                           href="{{ url_for('eraser.index') }}">
-                            <i class="bi bi-eraser"></i> File Eraser
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link {% if 'recovery' in (request.endpoint or '') %}active{% endif %}"
-                           href="{{ url_for('recovery.index') }}">
-                            <i class="bi bi-life-preserver"></i> Recover
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link {% if 'reports' in (request.endpoint or '') %}active{% endif %}"
-                           href="{{ url_for('reports.index') }}">
-                            <i class="bi bi-file-earmark-text"></i> Reports
-                        </a>
-                    </li>
-                </ul>
-                <hr style="border-color: var(--wx-border); margin: 12px 16px;">
-                <div class="px-3">
-                    <p class="text-muted" style="font-size: 0.7rem; letter-spacing: 1px;">SYSTEM</p>
-                    <ul class="nav flex-column">
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'dashboard.audit' %}active{% else %}text-muted{% endif %}"
-                               style="font-size:0.82rem" href="{{ url_for('dashboard.audit') }}">
-                                <i class="bi bi-file-lock"></i> Audit Logs
-                            </a>
-                        </li>
-                    </ul>
-                </div>
+    <div class="flex">
+        {% if current_user.is_authenticated %}
+        <!-- Mobile backdrop -->
+        <div x-show="sidebarOpen" x-transition.opacity x-cloak
+             class="fixed inset-0 z-40 bg-black/60 md:hidden" @click="sidebarOpen = false"></div>
+
+        <!-- Sidebar: static on desktop, off-canvas drawer on mobile -->
+        <aside class="fixed inset-y-0 left-0 z-50 w-64 -translate-x-full overflow-y-auto border-r
+                      border-wx-border bg-wx-card py-4 transition-transform duration-200 ease-out
+                      md:sticky md:top-[57px] md:h-[calc(100vh-57px)] md:w-56 md:translate-x-0 md:z-auto"
+               :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full'">
+            <div class="mb-2 flex items-center justify-between px-4 md:hidden">
+                <span class="text-xs tracking-widest text-wx-muted">MENU</span>
+                <button type="button" class="text-wx-muted hover:text-white" aria-label="Close menu"
+                        @click="sidebarOpen = false">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+            {% macro nav_link(endpoint_url, active, icon, label, small=False) %}
+            <a href="{{ endpoint_url }}"
+               class="mx-2 flex items-center gap-2 rounded-md px-3 py-2 {% if small %}text-[0.82rem]{% else %}text-sm{% endif %}
+                      {% if active %}bg-wx-red/15 border-l-4 border-wx-red text-white
+                      {% else %}text-wx-muted border-l-4 border-transparent hover:bg-wx-red/15 hover:text-white{% endif %}
+                      transition-colors" @click="sidebarOpen = false">
+                <i class="bi bi-{{ icon }}"></i> {{ label }}
+            </a>
+            {% endmacro %}
+            <nav class="flex flex-col">
+                {{ nav_link(url_for('dashboard.index'), request.endpoint == 'dashboard.index', 'speedometer2', 'Dashboard') }}
+                {{ nav_link(url_for('machines.index'), 'machines' in (request.endpoint or ''), 'pc-display', 'Machines') }}
+                {{ nav_link(url_for('disks.scan_local'), 'disks' in (request.endpoint or ''), 'hdd', 'Scan Disks') }}
+                {{ nav_link(url_for('eraser.index'), 'eraser' in (request.endpoint or ''), 'eraser', 'File Eraser') }}
+                {{ nav_link(url_for('recovery.index'), 'recovery' in (request.endpoint or ''), 'life-preserver', 'Recover') }}
+                {{ nav_link(url_for('reports.index'), 'reports' in (request.endpoint or ''), 'file-earmark-text', 'Reports') }}
+            </nav>
+            <hr class="my-3 border-wx-border">
+            <div class="px-4">
+                <p class="text-[0.7rem] tracking-widest text-wx-muted">SYSTEM</p>
+                <nav class="-mx-2 flex flex-col">
+                    {{ nav_link(url_for('dashboard.audit'), request.endpoint == 'dashboard.audit', 'file-lock', 'Audit Logs', small=True) }}
+                </nav>
+            </div>
+        </aside>
+        {% endif %}
+
+        <!-- Main content -->
+        <main class="min-w-0 flex-1 px-4 py-4 md:px-8 md:py-6">
+            {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+            <div class="fixed right-4 top-[72px] z-50 flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2"
+                 x-data="{ toasts: {{ messages | map('list') | list | tojson }} }">
+                <template x-for="(t, i) in toasts" :key="i">
+                    <div x-show="toasts[i]" x-init="setTimeout(() => toasts[i] = null, 6000)" x-transition
+                         class="flex items-start gap-2 rounded-md border px-3 py-2 text-sm shadow-lg"
+                         :class="{
+                            'bg-wx-success/15 border-wx-success text-wx-success': t[0] === 'success',
+                            'bg-wx-red/15 border-wx-red text-wx-red': t[0] === 'danger',
+                            'bg-wx-warning/15 border-wx-warning text-wx-warning': t[0] === 'warning',
+                            'bg-wx-info/15 border-wx-info text-wx-info': !['success','danger','warning'].includes(t[0])
+                         }">
+                        <i class="bi mt-0.5"
+                           :class="{
+                              'bi-check-circle': t[0] === 'success',
+                              'bi-exclamation-triangle': t[0] === 'danger',
+                              'bi-exclamation-circle': t[0] === 'warning',
+                              'bi-info-circle': !['success','danger','warning'].includes(t[0])
+                           }"></i>
+                        <span class="flex-1" x-text="t[1]"></span>
+                        <button type="button" class="text-current opacity-70 hover:opacity-100" @click="toasts[i] = null">
+                            <i class="bi bi-x"></i>
+                        </button>
+                    </div>
+                </template>
             </div>
             {% endif %}
+            {% endwith %}
 
-            <!-- Main content -->
-            <div class="{% if current_user.is_authenticated %}col-md-10{% else %}col-12{% endif %} py-4 px-4">
-                {% with messages = get_flashed_messages(with_categories=true) %}
-                    {% for category, message in messages %}
-                    <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
-                        <i class="bi bi-{% if category == 'success' %}check-circle{% elif category == 'danger' %}exclamation-triangle{% else %}info-circle{% endif %}"></i>
-                        {{ message }}
-                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                    </div>
-                    {% endfor %}
-                {% endwith %}
-
-                {% block content %}{% endblock %}
-            </div>
-        </div>
+            {% block content %}{% endblock %}
+        </main>
     </div>
 
     <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
