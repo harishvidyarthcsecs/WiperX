@@ -40,6 +40,10 @@ wiperx_sign_key*
 htmlcov/
 .mypy_cache/
 
+# Downloaded standalone tailwindcss binary (fetched by tools/build_css.sh,
+# never committed - only its output web/static/css/app.css is tracked)
+tools/.bin/
+
 # Editor / OS
 .vscode/
 .idea/

@@ -369,6 +369,22 @@ Production (per `run.py`'s app factory):
 sudo -E .venv/bin/gunicorn -w 4 -b 0.0.0.0:5000 "run:create_app_factory()"
 ```
 
+### Frontend assets
+
+The web UI ships fully self-contained under `web/static/` — Bootstrap 5,
+Bootstrap Icons, and Alpine.js are vendored locally (no CDN dependency, so the
+GUI works air-gapped). Tailwind utilities are layered in for new/converted
+markup; the compiled `web/static/css/app.css` is committed, so a normal
+`git clone` needs **no build step**. Only touch `tools/build_css.sh` if you
+edit `web/static/src/input.css` (new design tokens, more pages converted to
+Tailwind) — it fetches the standalone `tailwindcss` CLI (falls back to a
+scratch `npm install` under the gitignored `tools/.bin/` if that download is
+blocked) and rebuilds `app.css`:
+
+```bash
+bash tools/build_css.sh
+```
+
 | URL             | Description                              |
 |-----------------|-------------------------------------------|
 | `/auth/login`   | Login page                               |

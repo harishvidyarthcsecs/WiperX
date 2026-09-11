@@ -1,0 +1,35 @@
+/*
+ * WiperX Tailwind entry point.
+ *
+ * Deliberately imports only the theme + utility layers - NOT the preflight
+ * reset - so this can load alongside the still-in-place Bootstrap 5 stylesheet
+ * (see web/templates/base.html) without Tailwind's reset stripping Bootstrap's
+ * own heading/element normalisation. Utility classes below are available for
+ * new markup right away; the page-by-page conversion off Bootstrap (Part B
+ * "Page pass") drops this restriction and pulls in preflight once no template
+ * depends on Bootstrap's reset any more.
+ *
+ * Compile with tools/build_css.sh (standalone tailwindcss CLI, no npm).
+ */
+@import "tailwindcss/theme.css";
+@import "tailwindcss/utilities.css";
+
+@theme {
+  /* WiperX "security console" identity - same values as the inline <style>
+     block in base.html being phased out, kept as Tailwind theme tokens so
+     the legacy CSS vars and the new generated bg-wx-... / text-wx-...
+     utilities agree. */
+  --color-wx-red: #e74c3c;
+  --color-wx-red-dim: rgba(231, 76, 60, 0.15);
+  --color-wx-dark: #0d1117;
+  --color-wx-card: #161b22;
+  --color-wx-border: #30363d;
+  --color-wx-text: #c9d1d9;
+  --color-wx-muted: #8b949e;
+  --color-wx-warning: #f39c12;
+  --color-wx-success: #27ae60;
+  --color-wx-info: #58a6ff;
+
+  --font-sans: "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: Consolas, Monaco, ui-monospace, "SFMono-Regular", monospace;
+}
