@@ -1,0 +1,18 @@
+# WiperX - Module 3 (Forensic Carving & Recovery) extra dependencies.
+#
+# Not part of requirements.txt (CFG-01): pytsk3 builds from sdist against
+# the system libtsk headers, so installing it unconditionally broke
+# `pip install -r requirements.txt` on any machine without sleuthkit dev
+# packages. Install this file explicitly when you need `wiperx recover`,
+# or use `pip install -e ".[forensics]"` (equivalent, via setup.py).
+#
+# System packages required first (install separately, NOT via pip):
+#   Linux:  apt install sleuthkit testdisk libmagic1 nvme-cli hdparm util-linux
+#   macOS:  brew install sleuthkit libmagic
+
+pytsk3>=20250312          # The Sleuth Kit bindings: filesystem walk + undelete
+python-magic>=0.4.27      # libmagic content classification (needs libmagic system pkg)
+Pillow>=11.0              # image validator (JPEG/PNG structural verify)
+pypdf>=4.2                # PDF validator / structural parse
+mutagen>=1.47             # audio/video container validator
+# libewf-python            # OPTIONAL: E01 evidence image support (install from distro pkg)

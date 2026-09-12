@@ -1,5 +1,17 @@
 # WiperX - Cross-Platform Disk Wiping System
-# Runtime dependencies. Dev/test tools live in requirements-dev.txt.
+# Core runtime dependencies only. `pip install -r requirements.txt` must
+# succeed on any machine, with no system libraries beyond a plain Python
+# install - see setup.py's CORE list, which this file mirrors.
+#
+# CFG-01/02: the [forensics] and [remote-windows] extras used to live here
+# unconditionally, so a plain `pip install -r requirements.txt` failed on
+# any machine without sleuthkit dev headers (pytsk3 builds from sdist
+# against system libtsk). They now live in their own files:
+#   requirements-forensics.txt       - Module 3 recovery/carving
+#   requirements-remote-windows.txt  - WinRM support for Windows targets
+# Add them explicitly, or use `pip install -e ".[forensics,remote-windows]"`
+# (setup.py's extras_require) for the equivalent single-command install.
+#
 # Pins are lower bounds (>=) so security patches flow in; add an upper bound
 # only if a release is known to break.
 
@@ -10,36 +22,22 @@ Flask-WTF>=1.2
 Werkzeug>=3.0,<4
 Jinja2>=3.1
 
-# Remote execution
-paramiko>=3.4            # SSH (Linux remote)
-pywinrm>=0.4.3           # WinRM (Windows remote)   [extra: remote-windows]
-requests-credssp>=2.0    # WinRM CredSSP auth       [extra: remote-windows]
+# Remote execution (SSH only - see requirements-remote-windows.txt for WinRM)
+paramiko>=3.4             # SSH (Linux remote)
 
 # Reporting
-reportlab>=4.1           # PDF certificate generation
+reportlab>=4.1             # PDF certificate generation
 
 # Utilities
 psutil>=5.9
-python-dotenv>=1.0       # loads a local .env (see .env.example)
+python-dotenv>=1.0         # loads a local .env (see .env.example)
 colorama>=0.4.6
 tabulate>=0.9
 click>=8.1
 
 # Security
-cryptography>=42         # Ed25519 report signing
+cryptography>=42           # Ed25519 report signing
 bcrypt>=4.1
 
 # Logging
 python-json-logger>=2.0
-
-# Module 3 - Forensic Carving & Recovery  [extra: forensics]
-pytsk3>=20250312          # The Sleuth Kit bindings: filesystem walk + undelete
-python-magic>=0.4.27      # libmagic content classification (needs libmagic system pkg)
-Pillow>=11.0             # image validator (JPEG/PNG structural verify)
-pypdf>=4.2               # PDF validator / structural parse
-mutagen>=1.47            # audio/video container validator
-# libewf-python           # OPTIONAL: E01 evidence image support (install from distro pkg)
-
-# System packages (install separately, NOT via pip):
-#   Linux:  apt install sleuthkit testdisk libmagic1 nvme-cli hdparm util-linux
-#   macOS:  brew install sleuthkit libmagic

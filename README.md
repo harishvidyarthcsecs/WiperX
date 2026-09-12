@@ -163,7 +163,9 @@ wiperx/
 ├── tests/                         # Test suite (pytest)
 ├── run.py                         # Flask entry point
 ├── setup.py                       # CLI installation + console_script entry point
-├── requirements.txt               # Runtime dependencies
+├── requirements.txt               # Core runtime dependencies
+├── requirements-forensics.txt     # Module 3 extras (pytsk3, python-magic, Pillow, pypdf, mutagen)
+├── requirements-remote-windows.txt # WinRM extras (pywinrm, requests-credssp)
 ├── requirements-dev.txt           # pytest / black / flake8
 ├── WIPERX_ANALYSIS_REPORT.md      # Dated test/validation log across all 3 modules
 └── LICENSE
@@ -198,16 +200,25 @@ source .venv/bin/activate        # Linux/macOS
 ### 3. Install dependencies
 
 ```bash
+# Core only — succeeds on any machine, no system libraries required.
 pip install -r requirements.txt
+
+# Add these as needed (CFG-01/02: kept out of requirements.txt because
+# pytsk3 needs system sleuthkit headers to build):
+pip install -r requirements-forensics.txt        # Module 3 recovery/carving —
+                                                  # also needs system libmagic +
+                                                  # sleuthkit (see Prerequisites)
+pip install -r requirements-remote-windows.txt   # WinRM support for remote
+                                                  # Windows targets
 
 # Recommended: editable install also registers the `wiperx` console command
 # (see CLI Usage below) instead of only `python3 -m cli.wiperx_cli`.
 pip install -e .
 
-# Optional extras (from setup.py's extras_require):
-pip install -e ".[forensics]"        # Module 3 recovery/carving — also needs
-                                      # system libmagic + sleuthkit (see Prerequisites)
-pip install -e ".[remote-windows]"   # WinRM support for remote Windows targets
+# Equivalent extras form (from setup.py's extras_require) — same packages
+# as the requirements-*.txt files above, one command each:
+pip install -e ".[forensics]"
+pip install -e ".[remote-windows]"
 pip install -e ".[dev]"              # pytest, black, flake8 — for running tests/CI locally
 ```
 
@@ -503,10 +514,10 @@ pip install -r requirements-dev.txt   # or: pip install -e ".[dev]"
 pytest -q
 ```
 
-CI (`.github/workflows/ci.yml`) runs on every push and pull request, on Python 3.10, 3.11, and 3.12 (`ubuntu-latest`):
+CI (`.github/workflows/ci.yml`) runs on every push and pull request, on Python 3.10 through 3.13 (`ubuntu-latest`):
 
 1. Install system deps for forensic recovery: `libmagic1`, `sleuthkit`
-2. `pip install -r requirements.txt -r requirements-dev.txt`
+2. `pip install -r requirements.txt -r requirements-forensics.txt -r requirements-remote-windows.txt -r requirements-dev.txt`
 3. Lint: `black --check .` and `flake8 .`
 4. Test: `pytest -q --cov=core --cov=cli --cov=web --cov-report=term-missing`
 

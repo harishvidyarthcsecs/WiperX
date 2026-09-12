@@ -1,0 +1,8 @@
+# WiperX - remote Windows (WinRM) target support.
+#
+# Not part of requirements.txt (CFG-02): only needed when wiping/scanning a
+# remote Windows machine over WinRM. Install this file explicitly, or use
+# `pip install -e ".[remote-windows]"` (equivalent, via setup.py).
+
+pywinrm>=0.4.3            # WinRM (Windows remote)
+requests-credssp>=2.0     # WinRM CredSSP auth
