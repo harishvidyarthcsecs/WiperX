@@ -43,7 +43,10 @@ setup(
     },
     entry_points={
         "console_scripts": [
-            "wiperx=cli.wiperx_cli:cli",
+            # CLI-09/CLI-10: main() wraps cli() with the same top-level
+            # exception handler and logging.basicConfig() setup that
+            # `python wiperx_cli.py` gets via its __main__ guard.
+            "wiperx=cli.wiperx_cli:main",
         ],
     },
     python_requires=">=3.10",

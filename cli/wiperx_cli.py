@@ -27,15 +27,32 @@ from colorama import init as colorama_init, Fore, Style
 from tabulate import tabulate
 
 # Add project root to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+_REPO_ROOT = os.path.join(os.path.dirname(__file__), "..")
+sys.path.insert(0, _REPO_ROOT)
 
 # Load a local .env if python-dotenv is available (populates WIPERX_* vars
-# before anything reads os.environ). Silent no-op if not installed / no file.
+# before anything reads os.environ).
 try:
     from dotenv import load_dotenv
 
-    load_dotenv()
-except Exception:  # noqa: BLE001
+    # CLI-06: load_dotenv()'s default search starts from the CWD, so a
+    # repo-root .env is silently missed when wiperx is run from elsewhere.
+    # Try the CWD first (keeps existing behaviour for the common case), then
+    # fall back to the repo root explicitly.
+    if not load_dotenv():
+        load_dotenv(os.path.join(_REPO_ROOT, ".env"))
+except ImportError:
+    # CLI-05: python-dotenv not installed. A .env sitting right there with no
+    # explanation for why its vars aren't taking effect is a common source of
+    # confusion - hint instead of failing silently.
+    if os.path.isfile(os.path.join(_REPO_ROOT, ".env")):
+        print(
+            "[wiperx] Note: a .env file exists but python-dotenv is not "
+            "installed - its variables will NOT be loaded. "
+            "Install with: pip install python-dotenv",
+            file=sys.stderr,
+        )
+except Exception:  # noqa: BLE001 - a malformed .env must not block startup
     pass
 
 from core.execution_manager import (
@@ -259,29 +276,37 @@ def wipe(disk_identifier, mode, host, ssh_user, ssh_key, ssh_port,
 
     try:
         result = manager.execute_wipe(request)
+    except Exception as e:
+        click.echo(f"{Fore.RED}FATAL ERROR: {e}{Style.RESET_ALL}", err=True)
+        sys.exit(1)
 
-        # Always surface the post-wipe read-back verdict.
-        v = result.verification or {}
-        if v:
-            verdict = v.get("verified")
-            vlabel = ("PASSED" if verdict is True
-                      else "INCONCLUSIVE" if verdict is None else "FAILED")
-            vcolor = (Fore.GREEN if verdict is True
-                      else Fore.YELLOW if verdict is None else Fore.RED)
-            click.echo(f"{vcolor}Read-back verification: {vlabel}{Style.RESET_ALL}")
-            if v.get("details"):
-                click.echo(f"  {v['details']}")
+    # Always surface the post-wipe read-back verdict.
+    v = result.verification or {}
+    if v:
+        verdict = v.get("verified")
+        vlabel = ("PASSED" if verdict is True
+                  else "INCONCLUSIVE" if verdict is None else "FAILED")
+        vcolor = (Fore.GREEN if verdict is True
+                  else Fore.YELLOW if verdict is None else Fore.RED)
+        click.echo(f"{vcolor}Read-back verification: {vlabel}{Style.RESET_ALL}")
+        if v.get("details"):
+            click.echo(f"  {v['details']}")
 
-        click.echo(f"\n{'='*60}")
-        if result.success:
-            click.echo(f"{Fore.GREEN}✓ WIPE COMPLETED SUCCESSFULLY{Style.RESET_ALL}")
-        else:
-            click.echo(f"{Fore.RED}✗ WIPE FAILED{Style.RESET_ALL}")
-            if result.error:
-                click.echo(f"  Reason: {result.error}")
-        click.echo(f"{'='*60}\n")
+    click.echo(f"\n{'='*60}")
+    if result.success:
+        click.echo(f"{Fore.GREEN}✓ WIPE COMPLETED SUCCESSFULLY{Style.RESET_ALL}")
+    else:
+        click.echo(f"{Fore.RED}✗ WIPE FAILED{Style.RESET_ALL}")
+        if result.error:
+            click.echo(f"  Reason: {result.error}")
+    click.echo(f"{'='*60}\n")
 
-        # ── Generate Reports ──
+    # ── Generate Reports ──
+    # CLI-04: a separate try/except from the wipe itself - a report-write
+    # error (disk full, reportlab failure) here must never be reported as
+    # "FATAL ERROR" and must never hide that the wipe itself already
+    # succeeded or failed on its own terms.
+    try:
         from core.report_generator import ReportGenerator
         reporter = ReportGenerator()
 
@@ -297,12 +322,14 @@ def wipe(disk_identifier, mode, host, ssh_user, ssh_key, ssh_port,
             pdf_path = reporter.generate_pdf_report(result, operator=operator)
             if pdf_path:
                 click.echo(f"{Fore.CYAN}PDF Certificate: {pdf_path}{Style.RESET_ALL}")
-
-        sys.exit(0 if result.success else 1)
-
     except Exception as e:
-        click.echo(f"{Fore.RED}FATAL ERROR: {e}{Style.RESET_ALL}", err=True)
-        sys.exit(1)
+        click.echo(
+            f"{Fore.YELLOW}WARNING: wipe {'succeeded' if result.success else 'failed'} but "
+            f"report generation failed: {e}{Style.RESET_ALL}",
+            err=True,
+        )
+
+    sys.exit(0 if result.success else 1)
 
 
 # ---------------------------------------------------------------------------
@@ -383,6 +410,7 @@ def erase_file(paths, passes, no_zero, rename_rounds, workers, operator, yes):
 @click.option("--rename-rounds", default=3, show_default=True, help="Random renames before unlink.")
 @click.option("--workers", default=4, show_default=True, help="Parallel worker threads.")
 @click.option("--wipe-free", "wipe_free_mount", default=None,
+              type=click.Path(exists=True, file_okay=False),
               help="After erasing, also fill free space on this mount point.")
 @click.option("--fstrim", "fstrim_after", is_flag=True, help="Run fstrim after --wipe-free.")
 @click.option("--operator", default=None, help="Operator name for the certificate.")
@@ -443,10 +471,17 @@ def wipe_free(mount_point, passes, no_zero, fstrim_after, operator, yes):
         sys.exit(0)
 
     operator = operator or getpass.getuser()
-    res = service.wipe_free_space_only(
-        mount_point, passes=passes, zero_final=not no_zero,
-        fstrim_after=fstrim_after, operator=operator, log_callback=_erase_live_log,
-    )
+    try:
+        # CLI-07: wipe_free_space_only is designed to return a soft dict on
+        # failure, but an unexpected exception here previously showed a raw
+        # traceback instead of a clean error, unlike every other command.
+        res = service.wipe_free_space_only(
+            mount_point, passes=passes, zero_final=not no_zero,
+            fstrim_after=fstrim_after, operator=operator, log_callback=_erase_live_log,
+        )
+    except Exception as exc:  # noqa: BLE001 - surface any failure to the operator
+        click.echo(f"{Fore.RED}FATAL: {exc}{Style.RESET_ALL}", err=True)
+        sys.exit(1)
     fsw = res["free_space_wipe"]
     ok = fsw.get("ok")
     color = Fore.GREEN if ok else Fore.RED
@@ -502,6 +537,15 @@ def recover(source, out_dir, carve_only, fs_only, allow_mounted, operator):
     click.echo(f"  recovered files : {res['case_dir']}/recovered/")
     click.echo(f"{'='*60}")
     click.echo(f"{Fore.CYAN}Verify: wiperx verify-report {res['report_path']}{Style.RESET_ALL}\n")
+
+    # CLI-03: recover previously always exited 0 regardless of outcome - 0
+    # files recovered looked identical to a successful recovery to any
+    # calling script. Exit non-zero when nothing was actually recovered.
+    if s["total"] == 0:
+        click.echo(
+            f"{Fore.YELLOW}NOTE: 0 files recovered.{Style.RESET_ALL}", err=True
+        )
+        sys.exit(2)
     sys.exit(0)
 
 
@@ -665,6 +709,30 @@ def _print_disk_table(disks):
 # Main entry
 # ---------------------------------------------------------------------------
 
-if __name__ == "__main__":
+def main():
+    """Entry point for both `python wiperx_cli.py` and the installed
+    `wiperx` console script (see setup.py's entry_points).
+
+    CLI-10: logging.basicConfig() previously only ran under the
+    `if __name__ == "__main__":` guard, so `pip install -e .` + `wiperx ...`
+    never configured logging at all.
+
+    CLI-09: any exception raised outside a command's own try/except (a
+    shared helper like _resolve_mode, an import error, anything before a
+    command body's try block) previously showed a raw traceback with no
+    top-level handler. SystemExit is re-raised unchanged so Click's own
+    exit codes (and our sys.exit(...) calls inside each command) pass
+    through untouched - only a genuinely unhandled exception is caught here.
+    """
     logging.basicConfig(level=logging.WARNING)
-    cli()
+    try:
+        cli()
+    except SystemExit:
+        raise
+    except Exception as e:  # noqa: BLE001 - last-resort, one clean line
+        click.echo(f"{Fore.RED}FATAL: unexpected error: {e}{Style.RESET_ALL}", err=True)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
