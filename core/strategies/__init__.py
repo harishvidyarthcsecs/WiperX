@@ -597,12 +597,32 @@ class MacOSWipeStrategy(WipeStrategy):
             )
             return False
 
+    def _query_size_bytes_macos(self, ident, executor, log_callback=None) -> int:
+        """ENG-08: fresh `diskutil info -plist` size lookup, used as a
+        fallback when the scanned DiskInfo carries no size. Returns 0 (never
+        raises) on any failure - caller treats that the same as "unknown"."""
+        import plistlib
+
+        try:
+            raw_info = executor.run_command(f"diskutil info -plist {shlex.quote(ident)}")
+            info = plistlib.loads(raw_info if isinstance(raw_info, bytes) else raw_info.encode())
+            return int(info.get("TotalSize") or info.get("Size") or 0)
+        except Exception as exc:  # noqa: BLE001 - size is a bounding optimisation, not required
+            self._log(f"Could not query live device size ({exc}).", log_callback)
+            return 0
+
     def _run_passes_macos(self, raw_device, disk, executor, passes, log_callback=None) -> bool:
         """Explicit PassSpec overwrites via BSD dd against a raw device node."""
         quoted = shlex.quote(raw_device)
         bs_mib = 1
         count_clause = ""
         size_bytes = int(getattr(disk, "size_bytes", 0) or 0)
+        if size_bytes <= 0:
+            # ENG-08: the scanned DiskInfo carried no size (or is stale) -
+            # try one fresh `diskutil info -plist` query before giving up and
+            # writing unbounded. Same field-precedence and parsing DiskScanner
+            # uses at scan time (core/disk_scanner.py `_scan_macos`).
+            size_bytes = self._query_size_bytes_macos(disk.identifier, executor, log_callback)
         if size_bytes > 0:
             unit = bs_mib * 1024 * 1024
             blocks = (size_bytes + unit - 1) // unit

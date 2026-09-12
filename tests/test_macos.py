@@ -167,6 +167,36 @@ def test_macos_strategy_passes_use_dd_raw_device():
     assert not any("secureErase" in c for c in ex.calls)
 
 
+def test_macos_strategy_passes_bounds_dd_via_live_diskutil_query():
+    """ENG-08: when the scanned DiskInfo carries no size (size_bytes=0 -
+    stale scan, or the disk changed since scan), _run_passes_macos must not
+    just give up and write unbounded - it should fall back to one fresh
+    `diskutil info -plist` query before conceding "unknown"."""
+    from core.strategies import MacOSWipeStrategy
+
+    passes = [SimpleNamespace(kind="fixed", byte=0)]
+    ex = FakeExecutor(responses={
+        "diskutil info -plist disk4": _plist({"TotalSize": 128 * 1024 * 1024}),
+    })
+    ok = MacOSWipeStrategy().execute(_disk(size_bytes=0), ex, passes=passes)
+    assert ok is True
+    dd_calls = [c for c in ex.calls if c.startswith("dd ") and "of=/dev/rdisk4" in c]
+    assert len(dd_calls) == 1
+    assert "count=128" in dd_calls[0]  # 128 MiB / bs=1m
+
+
+def test_macos_strategy_passes_unbounded_when_live_query_also_fails():
+    from core.strategies import MacOSWipeStrategy
+
+    passes = [SimpleNamespace(kind="fixed", byte=0)]
+    ex = FakeExecutor()  # no diskutil info response configured -> ""
+    ok = MacOSWipeStrategy().execute(_disk(size_bytes=0), ex, passes=passes)
+    assert ok is True
+    dd_calls = [c for c in ex.calls if c.startswith("dd ") and "of=/dev/rdisk4" in c]
+    assert len(dd_calls) == 1
+    assert "count=" not in dd_calls[0]
+
+
 def test_macos_strategy_refuses_system_disk():
     from core.strategies import MacOSWipeStrategy
 
