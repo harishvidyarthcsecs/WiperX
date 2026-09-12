@@ -197,14 +197,26 @@ These are inherent to software-based sanitisation and already noted in `README.m
 ## 10. Test coverage of failure modes
 
 **Already covered** — `tests/test_core.py` (disk-not-found, name-mismatch,
-system/mounted safety matrix, failed-command `RuntimeError`),
+system/mounted safety matrix, failed-command `RuntimeError`, device-path
+quoting + Windows diskpart numeric-identifier refusal, binary pre-flight,
+SSH channel drain + keepalive, remote-Windows admin check, scan-error
+wrapping, `executor.close()` exception isolation, unknown-method warning),
+`tests/test_windows.py` (Windows `is_system`/`is_mounted` via
+`Get-Partition`, fail-closed on either PowerShell query failing — no live
+Windows box available, code-review-verified + unit-tested only),
+`tests/test_cli.py` (`wipe --yes` flow, `getpass.getuser()` fallback,
+`recover` exit codes, non-fatal report-generation errors, `wipe-free`
+error handling and `--wipe-free` path validation),
 `tests/test_eraser_file.py` (non-recursive dir skipped, symlink skip,
 `PermissionError` → `ShredResult` not exception),
 `tests/test_recovery.py` (`open_source` rejects missing source, optional-lib
 `importorskip`), `tests/test_wipe_passes.py` (unknown method / invalid
-`PassSpec`), `tests/test_macos.py` (root-device resolution failure),
-`tests/test_fixes_pendrive_analysis.py` (scanner misclassification regressions),
-`tests/test_web.py` (RBAC 403 / 400 / 404 smoke).
+`PassSpec`), `tests/test_macos.py` (root-device resolution failure, macOS
+dd live-size fallback), `tests/test_fixes_pendrive_analysis.py` (scanner
+misclassification regressions, unsized-disk verification), `tests/test_web.py`
+(RBAC 403 / 400 / 404 smoke), `tests/test_hardening.py` (report-download/view
+traversal, login open-redirect, CSRF, eraser path/bad-`int()`, dashboard
+missing-crypto, report-view non-JSON).
 
 **Covered in A3** (`tests/test_web_robustness.py`): `wipe.py` thread dying with
 no `done` · SSE queue collision (409) · `pending_wipe` replay ·
@@ -222,14 +234,18 @@ but not consistently the same ones - observed so far:
 `test_random_filler_yields_no_false_positives`, and
 `test_genuine_footerless_file_still_carved`. Never more than one per run,
 never reproduces standalone. Root cause not yet isolated — likely global
-carver / `PIL` state left by an earlier test (cf. RC-12). Triage in A4.
+carver / `PIL` state left by an earlier test (cf. RC-12). Not chased in A4 —
+out of scope for the disk/CLI/config items landed this phase.
 
-**Known gap — no coverage yet** (added in A7):
-missing-`WIPERX_SECRET_KEY` hard-fail ·
-`reports.py` `cases/..` traversal to `keys/` · login open-redirect ·
-`int()`/`stat()` → 500 in `eraser`/`machines`/`dashboard` ·
-unsized-disk → verification-FAIL downgrade · `audit_logger` import-time `mkdir`
-failure.
+**Known gap — code fixed, still no regression test** (reconciled in this A7
+pass; most of the original A7 list turned out to already be covered by
+`test_hardening.py` — verified by direct grep, not assumed): missing-
+`WIPERX_SECRET_KEY` hard-fail (`run.py`/`web/app.py`) · `machines.py`'s
+non-numeric `ssh_port`/`winrm_port` → flash instead of 500 (CR-03, code
+fixed in A2, never got its own test) · `audit_logger` import-time `mkdir`
+failure (CR-07, still `open` — code fix not yet landed either). None of
+these three are in this phase's ENG/CLI/CFG scope — left open, not silently
+dropped.
 
 **Latent test mismatch — reconciled (A4)**: that note referred to
 `get_strategy`'s existing `ValueError` for an unsupported OS
