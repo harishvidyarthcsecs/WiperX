@@ -103,10 +103,19 @@ class WinRMExecutor(BaseExecutor):
 
         self._session: Optional["winrm.Session"] = None
 
-    def connect(self) -> None:
+    def connect(self, operation_timeout_sec: Optional[int] = None) -> None:
         """
         Initialize a WinRM session.
         Sessions are stateless in pywinrm; this creates the session object.
+
+        Args:
+            operation_timeout_sec : ENG-16 (best-effort) - sizes the
+                underlying pywinrm Protocol's operation/read timeouts for the
+                lifetime of this session, from the first run_command()'s
+                `timeout` argument if the session doesn't exist yet. pywinrm
+                requires read_timeout_sec > operation_timeout_sec. A later
+                run_command() with a very different timeout does not resize
+                an already-open session.
         """
         transport_url = f"https://{self.hostname}:{self.port}/wsman"
         logger.info(
@@ -115,12 +124,16 @@ class WinRMExecutor(BaseExecutor):
         )
 
         server_cert_validation = "validate" if self.verify_ssl else "ignore"
+        op_timeout = operation_timeout_sec or self.DEFAULT_TIMEOUT
+        read_timeout = op_timeout + 10  # must exceed operation_timeout_sec
 
         self._session = winrm.Session(
             target=transport_url,
             auth=(self.username, self.password),
             transport="ssl",
             server_cert_validation=server_cert_validation,
+            operation_timeout_sec=op_timeout,
+            read_timeout_sec=read_timeout,
         )
         logger.info(f"[WinRMExecutor] Session created for {self.hostname}")
 
@@ -139,7 +152,7 @@ class WinRMExecutor(BaseExecutor):
             RuntimeError: If command fails or session is not initialized.
         """
         if self._session is None:
-            self.connect()
+            self.connect(operation_timeout_sec=timeout)
 
         logger.info(f"[WinRMExecutor] [{self.hostname}] Running: {command}")
 

@@ -23,6 +23,7 @@ Usage:
 
 import logging
 import os
+import time
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -51,6 +52,8 @@ class SSHExecutor(BaseExecutor):
     DEFAULT_PORT = 22
     DEFAULT_TIMEOUT = 30  # seconds for connection
     COMMAND_BUFFER_SIZE = 65536
+    KEEPALIVE_INTERVAL = 30  # seconds; ENG-16 - survive idle NAT/firewall timeouts
+    DRAIN_POLL_INTERVAL = 0.05  # seconds between empty-channel polls while draining
 
     def __init__(
         self,
@@ -144,6 +147,14 @@ class SSHExecutor(BaseExecutor):
             )
             logger.info(f"[SSHExecutor] Connected to {self.hostname}")
 
+            # ENG-16: without a keepalive, a multi-hour wipe over SSH can be
+            # dropped by an idle NAT/firewall timeout - the transport dies
+            # silently and the wipe is reported FAILED even though it may
+            # still be running on the target.
+            transport = self._client.get_transport()
+            if transport is not None:
+                transport.set_keepalive(self.KEEPALIVE_INTERVAL)
+
         except paramiko.AuthenticationException as e:
             logger.error(f"[SSHExecutor] Authentication failed for {self.username}@{self.hostname}")
             raise
@@ -180,9 +191,13 @@ class SSHExecutor(BaseExecutor):
                 get_pty=True  # Pseudo-TTY for interactive command output
             )
 
-            # Read output
-            output = stdout.read(self.COMMAND_BUFFER_SIZE).decode("utf-8", errors="replace")
-            error_output = stderr.read(self.COMMAND_BUFFER_SIZE).decode("utf-8", errors="replace")
+            # ENG-15: drain the channel in a loop instead of one
+            # COMMAND_BUFFER_SIZE-bounded read. A long-running wipe command
+            # (dd status=progress over hours) can produce far more than 64KB
+            # of output; a single bounded read stalls once the channel's
+            # internal buffer fills and nothing is draining it, until the
+            # caller's timeout expires.
+            output, error_output = self._drain_channel(stdout.channel)
             exit_code = stdout.channel.recv_exit_status()
 
             if exit_code != 0:
@@ -200,6 +215,40 @@ class SSHExecutor(BaseExecutor):
         except Exception as e:
             logger.error(f"[SSHExecutor] Error running command on {self.hostname}: {e}")
             raise
+
+    def _drain_channel(self, channel) -> tuple:
+        """ENG-15: read stdout/stderr in a loop until the channel signals
+        command completion and both buffers are empty, instead of a single
+        COMMAND_BUFFER_SIZE-bounded read.
+
+        Returns:
+            (str, str): decoded (stdout, stderr) output, concatenated across
+            every chunk read.
+        """
+        out_chunks = []
+        err_chunks = []
+        while True:
+            read_any = False
+            while channel.recv_ready():
+                chunk = channel.recv(self.COMMAND_BUFFER_SIZE)
+                if not chunk:
+                    break
+                out_chunks.append(chunk)
+                read_any = True
+            while channel.recv_stderr_ready():
+                chunk = channel.recv_stderr(self.COMMAND_BUFFER_SIZE)
+                if not chunk:
+                    break
+                err_chunks.append(chunk)
+                read_any = True
+            if channel.exit_status_ready() and not read_any:
+                break
+            if not read_any:
+                time.sleep(self.DRAIN_POLL_INTERVAL)
+
+        output = b"".join(out_chunks).decode("utf-8", errors="replace")
+        error_output = b"".join(err_chunks).decode("utf-8", errors="replace")
+        return output, error_output
 
     def test_connection(self) -> bool:
         """

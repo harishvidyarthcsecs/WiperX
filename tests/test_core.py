@@ -383,6 +383,104 @@ class TestDevicePathQuoting:
 
 
 # ---------------------------------------------------------------------------
+# ENG-17: remote WinRM privilege check must actually verify Administrator
+# role, not just log the identity name and pass unconditionally.
+# ---------------------------------------------------------------------------
+
+class TestRemoteWindowsPrivilegeCheck:
+    def _manager(self):
+        from core.execution_manager import ExecutionManager
+        return ExecutionManager()
+
+    def test_non_admin_remote_user_is_blocked(self):
+        from unittest.mock import MagicMock
+        from core.os_detector import OSType
+
+        executor = MagicMock()
+        executor.run_command.return_value = "HOST\\bob\nFalse"
+        with pytest.raises(PermissionError):
+            self._manager()._check_privileges(executor, OSType.WINDOWS, log_fn=lambda *_: None)
+
+    def test_admin_remote_user_passes(self):
+        from unittest.mock import MagicMock
+        from core.os_detector import OSType
+
+        executor = MagicMock()
+        executor.run_command.return_value = "HOST\\admin\nTrue"
+        # Should not raise.
+        self._manager()._check_privileges(executor, OSType.WINDOWS, log_fn=lambda *_: None)
+
+
+# ---------------------------------------------------------------------------
+# ENG-15/16: SSH executor drains the full channel output (not truncated at
+# 64KB) and sets a transport keepalive.
+# ---------------------------------------------------------------------------
+
+class TestSSHExecutorDrainAndKeepalive:
+    class _FakeChannel:
+        """Yields output across several recv() calls before exit_status_ready."""
+
+        def __init__(self, out_chunks, exit_status=0):
+            self._out_chunks = list(out_chunks)
+            self._exit_status = exit_status
+
+        def recv_ready(self):
+            return bool(self._out_chunks)
+
+        def recv(self, _bufsize):
+            return self._out_chunks.pop(0) if self._out_chunks else b""
+
+        def recv_stderr_ready(self):
+            return False
+
+        def recv_stderr(self, _bufsize):
+            return b""
+
+        def exit_status_ready(self):
+            return not self._out_chunks
+
+        def recv_exit_status(self):
+            return self._exit_status
+
+    def test_drain_channel_concatenates_all_chunks_not_truncated(self):
+        from core.executors.ssh_executor import SSHExecutor
+
+        # Bypass __init__'s paramiko/key-file requirements.
+        executor = SSHExecutor.__new__(SSHExecutor)
+        channel = self._FakeChannel([b"a" * 70000, b"b" * 70000, b"tail"])
+
+        output, error_output = executor._drain_channel(channel)
+
+        assert len(output) == 140000 + 4
+        assert output.endswith("tail")
+        assert error_output == ""
+
+    def test_connect_sets_transport_keepalive(self, monkeypatch):
+        from unittest.mock import MagicMock
+        import core.executors.ssh_executor as ssh_mod
+
+        fake_transport = MagicMock()
+        fake_client = MagicMock()
+        fake_client.get_transport.return_value = fake_transport
+        monkeypatch.setattr(ssh_mod, "paramiko", MagicMock(SSHClient=lambda: fake_client))
+        monkeypatch.setattr(ssh_mod.os.path, "isfile", lambda _p: True)
+
+        from core.executors.ssh_executor import SSHExecutor
+
+        executor = SSHExecutor.__new__(SSHExecutor)
+        executor.hostname = "host"
+        executor.username = "user"
+        executor.port = 22
+        executor.key_path = "/tmp/key"
+        executor.known_hosts_path = "/tmp/known_hosts"
+        executor._client = None
+
+        executor.connect()
+
+        fake_transport.set_keepalive.assert_called_once_with(SSHExecutor.KEEPALIVE_INTERVAL)
+
+
+# ---------------------------------------------------------------------------
 # Safety Check Tests (mocked)
 # ---------------------------------------------------------------------------
 

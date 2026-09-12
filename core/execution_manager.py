@@ -463,10 +463,26 @@ class ExecutionManager:
                     "SSH as root or use sudo."
                 )
         elif os_type == OSType.WINDOWS:
-            result = executor.run_command(
-                "[Security.Principal.WindowsIdentity]::GetCurrent().Name"
+            # ENG-17: the old check only fetched and logged the identity
+            # name - it never asked whether that identity is actually an
+            # Administrator, so a non-admin remote WinRM user always passed.
+            identity_check = (
+                "$id = [Security.Principal.WindowsIdentity]::GetCurrent(); "
+                "$principal = New-Object Security.Principal.WindowsPrincipal($id); "
+                "Write-Output $id.Name; "
+                "Write-Output $principal.IsInRole("
+                "[Security.Principal.WindowsBuiltinRole]::Administrator)"
             )
-            log_fn(f"[Safety Check 1] Remote user: {result.strip()}")
+            result = executor.run_command(identity_check)
+            lines = [line.strip() for line in result.splitlines() if line.strip()]
+            user_name = lines[0] if lines else "unknown"
+            is_admin = lines[-1].strip().lower() == "true" if lines else False
+            log_fn(f"[Safety Check 1] Remote user: {user_name}")
+            if not is_admin:
+                raise PermissionError(
+                    f"Remote WinRM user '{user_name}' is not an Administrator. "
+                    "Connect as (or elevate to) an account in the Administrators group."
+                )
 
         log_fn("[Safety Check 1] PASSED: Privileges verified.")
 
