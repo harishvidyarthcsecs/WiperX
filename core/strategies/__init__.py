@@ -187,7 +187,7 @@ class LinuxHDDWipeStrategy(WipeStrategy):
             )
             return self._run_passes(device_path, executor, passes, log_callback)
 
-        cmd = f"shred -v -n 1 -z {device_path}"
+        cmd = f"shred -v -n 1 -z {shlex.quote(device_path)}"
         self._log(f"Starting shred on {device_path}", log_callback)
         self._log(f"Command: {cmd}", log_callback)
 
@@ -225,7 +225,7 @@ class LinuxSSDWipeStrategy(WipeStrategy):
         device_path = f"/dev/{disk.identifier}"
 
         # Step 1: blkdiscard (TRIM hint — always, harmless if unsupported)
-        cmd_discard = f"blkdiscard {device_path}"
+        cmd_discard = f"blkdiscard {shlex.quote(device_path)}"
         self._log(f"Step 1: blkdiscard on {device_path}", log_callback)
         self._log(f"Command: {cmd_discard}", log_callback)
         try:
@@ -243,7 +243,7 @@ class LinuxSSDWipeStrategy(WipeStrategy):
             )
             return self._run_passes(device_path, executor, passes, log_callback)
 
-        cmd_dd = f"dd if=/dev/zero of={device_path} bs=4M status=progress conv=fsync"
+        cmd_dd = f"dd if=/dev/zero of={shlex.quote(device_path)} bs=4M status=progress conv=fsync"
         self._log(f"Step 2: dd zero pass on {device_path}", log_callback)
         self._log(f"Command: {cmd_dd}", log_callback)
         try:
@@ -298,7 +298,7 @@ class LinuxNVMeWipeStrategy(WipeStrategy):
             return False
 
         device_path = f"/dev/{identifier}"
-        cmd = f"nvme format {device_path} --ses=1 --force"
+        cmd = f"nvme format {shlex.quote(device_path)} --ses=1 --force"
 
         self._log(f"Starting NVMe format on {device_path}", log_callback)
         self._log(f"Command: {cmd}", log_callback)
@@ -344,7 +344,7 @@ class LinuxUSBWipeStrategy(WipeStrategy):
             )
             return self._run_passes(device_path, executor, passes, log_callback)
 
-        cmd = f"dd if=/dev/zero of={device_path} bs=1M status=progress conv=fsync"
+        cmd = f"dd if=/dev/zero of={shlex.quote(device_path)} bs=1M status=progress conv=fsync"
         self._log(f"Starting USB wipe via dd on {device_path}", log_callback)
         self._log(f"Command: {cmd}", log_callback)
 
@@ -387,6 +387,21 @@ class WindowsWipeStrategy(WipeStrategy):
     def execute(self, disk, executor, log_callback=None, passes=None) -> bool:
         disk_number = disk.identifier  # e.g. "1", "2"
 
+        # ENG-12: disk_number is embedded, unescaped, into a PowerShell
+        # Set-Content string, a diskpart script line, and a cmd.exe path -
+        # three different quoting dialects, none of which shlex.quote (POSIX
+        # shell syntax) can protect against on a Windows target. Refuse
+        # anything that isn't a bare disk number instead, mirroring the NVMe
+        # identifier's regex-refuse pattern (ENG-06) rather than pretending
+        # to quote for the wrong shell.
+        if not re.match(r"^\d+$", str(disk_number)):
+            self._log(
+                f"ERROR: unexpected Windows disk identifier '{disk_number}' - "
+                "refusing to build a diskpart script for it.",
+                log_callback,
+            )
+            return False
+
         if passes and len(passes) > 1:
             self._log(
                 f"NOTE: 'diskpart clean all' writes zeros to every sector in one "
@@ -402,7 +417,7 @@ class WindowsWipeStrategy(WipeStrategy):
             f"exit\r\n"
         )
 
-        # Write script to temp file and execute
+        # Write script to temp file and execute.
         script_path = f"C:\\WiperX_diskpart_{disk_number}.txt"
         write_cmd = (
             f'powershell -Command "Set-Content -Path \'{script_path}\' '
@@ -495,9 +510,10 @@ class MacOSWipeStrategy(WipeStrategy):
         # Unmount so writes are not blocked. For a single partition unmount just
         # that slice; for a whole disk unmount the whole disk.
         is_part = getattr(disk, "is_partition", False)
+        quoted_whole = shlex.quote(whole)
         umount_cmd = (
-            f"diskutil unmount force {whole}" if is_part
-            else f"diskutil unmountDisk force {whole}"
+            f"diskutil unmount force {quoted_whole}" if is_part
+            else f"diskutil unmountDisk force {quoted_whole}"
         )
         try:
             out = executor.run_command(umount_cmd, timeout=120)
@@ -517,7 +533,7 @@ class MacOSWipeStrategy(WipeStrategy):
                 pass
             return ok
 
-        cmd = f"diskutil secureErase 0 {ident}"
+        cmd = f"diskutil secureErase 0 {shlex.quote(ident)}"
         self._log(f"Starting single-pass zero erase on {ident}", log_callback)
         self._log(f"Command: {cmd}", log_callback)
         try:

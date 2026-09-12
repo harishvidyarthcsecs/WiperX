@@ -261,6 +261,78 @@ class TestStrategyFactory:
 
 
 # ---------------------------------------------------------------------------
+# ENG-12: every interpolated device path/identifier must be shell-quoted
+# before it reaches an executor's shell=True command string.
+# ---------------------------------------------------------------------------
+
+class TestDevicePathQuoting:
+    def _make_disk(self, disk_type, bus_type, identifier):
+        from core.disk_scanner import DiskInfo
+        return DiskInfo(identifier=identifier, disk_type=disk_type, bus_type=bus_type)
+
+    def test_linux_hdd_shred_quotes_device_path(self):
+        import shlex
+        from unittest.mock import MagicMock
+        from core.strategies import LinuxHDDWipeStrategy
+
+        evil = "sda; rm -rf /"
+        disk = self._make_disk("HDD", "SATA", evil)
+        executor = MagicMock()
+        executor.run_command.return_value = ""
+
+        LinuxHDDWipeStrategy().execute(disk, executor, log_callback=None)
+
+        cmd = executor.run_command.call_args[0][0]
+        assert shlex.quote(f"/dev/{evil}") in cmd
+        assert "; rm -rf /" not in cmd.split(shlex.quote(f"/dev/{evil}"))[0]
+
+    def test_windows_diskpart_refuses_non_numeric_disk_number(self):
+        """ENG-12: disk_number is embedded unescaped into three different
+        Windows quoting dialects (PowerShell, diskpart script, cmd path) -
+        shlex.quote can't protect any of them. A non-numeric identifier must
+        be refused outright, not quoted-and-passed-through."""
+        from unittest.mock import MagicMock
+        from core.strategies import WindowsWipeStrategy
+
+        evil = "1 & del C:\\Windows"
+        disk = self._make_disk("HDD", "SATA", evil)
+        executor = MagicMock()
+
+        ok = WindowsWipeStrategy().execute(disk, executor, log_callback=None)
+
+        assert ok is False
+        executor.run_command.assert_not_called()
+
+    def test_windows_diskpart_accepts_plain_numeric_disk_number(self):
+        from unittest.mock import MagicMock
+        from core.strategies import WindowsWipeStrategy
+
+        disk = self._make_disk("HDD", "SATA", "1")
+        executor = MagicMock()
+        executor.run_command.return_value = ""
+
+        ok = WindowsWipeStrategy().execute(disk, executor, log_callback=None)
+
+        assert ok is True
+        executor.run_command.assert_called()
+
+    def test_macos_secure_erase_quotes_identifier(self):
+        import shlex
+        from unittest.mock import MagicMock
+        from core.strategies import MacOSWipeStrategy
+
+        evil = "disk4; rm -rf /"
+        disk = self._make_disk("SSD", "USB", evil)
+        executor = MagicMock()
+        executor.run_command.return_value = ""
+
+        MacOSWipeStrategy().execute(disk, executor, log_callback=None)
+
+        erase_cmd = executor.run_command.call_args_list[-1][0][0]
+        assert shlex.quote(evil) in erase_cmd
+
+
+# ---------------------------------------------------------------------------
 # Safety Check Tests (mocked)
 # ---------------------------------------------------------------------------
 
@@ -482,6 +554,18 @@ class TestLocalExecutor:
         from core.executors import LocalExecutor
         executor = LocalExecutor()
         assert executor.test_connection() is True
+
+    def test_oserror_from_subprocess_wrapped_as_runtimeerror(self):
+        """ENG-14: a raw OSError/FileNotFoundError from subprocess.run itself
+        (fork failure, no shell, exec permission denied) must not propagate
+        unwrapped - only RuntimeError is part of this method's contract."""
+        from unittest.mock import patch
+        from core.executors import LocalExecutor
+
+        executor = LocalExecutor()
+        with patch("subprocess.run", side_effect=FileNotFoundError("no /bin/sh")):
+            with pytest.raises(RuntimeError):
+                executor.run_command("echo hi")
 
 
 # ---------------------------------------------------------------------------

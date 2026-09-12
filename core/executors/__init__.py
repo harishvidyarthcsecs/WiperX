@@ -117,6 +117,13 @@ class LocalExecutor(BaseExecutor):
         except subprocess.TimeoutExpired:
             logger.error(f"[LocalExecutor] Command timed out after {timeout}s: {command}")
             raise RuntimeError(f"Command timed out after {timeout} seconds.")
+        except OSError as e:
+            # ENG-14: fork failure, missing /bin/sh, exec permission denied,
+            # etc. surface as a raw OSError/FileNotFoundError from subprocess
+            # itself (not TimeoutExpired). Wrap it so callers only ever see
+            # the RuntimeError contract this method's docstring promises.
+            logger.error(f"[LocalExecutor] Command could not be executed: {e}")
+            raise RuntimeError(f"Command could not be executed: {e}")
 
     def test_connection(self) -> bool:
         """Local executor is always 'connected'."""
