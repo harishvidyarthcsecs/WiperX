@@ -100,6 +100,22 @@ class DiskScanner:
         "Size,BusType,OperationalStatus | ConvertTo-Csv -NoTypeInformation\""
     )
 
+    # ENG-05: the disk backing the boot volume, found via the partition
+    # mounted at %SystemDrive% - not assumed to be disk number 0.
+    WINDOWS_GET_SYSTEM_DISK_CMD = (
+        "powershell -Command \""
+        "Get-Partition -DriveLetter ($env:SystemDrive.TrimEnd(':')) | "
+        "Select-Object DiskNumber | ConvertTo-Csv -NoTypeInformation\""
+    )
+
+    # ENG-04: every partition's disk number + assigned drive letter, used to
+    # derive is_mounted per disk instead of aliasing it to is_system.
+    WINDOWS_GET_PARTITIONS_CMD = (
+        "powershell -Command \""
+        "Get-Partition | Select-Object DiskNumber,DriveLetter | "
+        "ConvertTo-Csv -NoTypeInformation\""
+    )
+
     # Linux command to check mounted devices
     LINUX_MOUNT_CMD = "cat /proc/mounts"
 
@@ -286,6 +302,21 @@ class DiskScanner:
         import csv
         import io
 
+        # ENG-04/ENG-05: mirror the Linux fail-closed pattern (ENG-01/02) -
+        # a genuine detection failure (PowerShell error, unparseable output)
+        # must mark every disk's system/mounted status as *unknown* (None),
+        # never guess "disk 0 is system" or "is_mounted = is_system".
+        system_disk_number = self._get_system_disk_number_windows()
+        partitions = self._get_partitions_windows()
+        detection_failed = system_disk_number is None or partitions is None
+        if detection_failed:
+            logger.error(
+                "[DiskScanner] Windows system-disk or partition detection "
+                "failed - system/mounted status for every disk will be "
+                "reported as unknown (None) so callers refuse to wipe "
+                "rather than guess."
+            )
+
         disks = []
         try:
             reader = csv.DictReader(io.StringIO(raw_output))
@@ -311,8 +342,14 @@ class DiskScanner:
                 else:
                     disk_type = "HDD"  # Conservative default
 
-                # Disk 0 is typically the system disk on Windows
-                is_system = (number == "0")
+                if detection_failed:
+                    is_system = None
+                    is_mounted = None
+                else:
+                    is_system = number == system_disk_number
+                    is_mounted = any(
+                        p_disk == number and p_letter for p_disk, p_letter in partitions
+                    )
 
                 disk = DiskInfo(
                     identifier=number,
@@ -323,7 +360,7 @@ class DiskScanner:
                     disk_type=disk_type,
                     bus_type=bus_type,
                     is_system=is_system,
-                    is_mounted=is_system,  # Treat system disk as mounted
+                    is_mounted=is_mounted,
                     raw=str(row),
                 )
                 disks.append(disk)
@@ -334,6 +371,50 @@ class DiskScanner:
 
         logger.info(f"[DiskScanner] Windows scan complete: {len(disks)} disk(s) found.")
         return disks
+
+    def _get_system_disk_number_windows(self) -> Optional[str]:
+        """Disk number backing %SystemDrive%, or None if detection failed.
+
+        ENG-05: this replaces the old "disk 0 is system" assumption, which
+        is wrong on any multi-disk box where Windows isn't installed on the
+        first enumerated disk.
+        """
+        import csv
+        import io
+
+        try:
+            raw = self.executor.run_command(self.WINDOWS_GET_SYSTEM_DISK_CMD)
+            if not raw:
+                return None
+            reader = csv.DictReader(io.StringIO(raw))
+            for row in reader:
+                number = (row.get("DiskNumber") or "").strip()
+                if number:
+                    return number
+            return None
+        except Exception as e:
+            logger.warning(f"[DiskScanner] Could not determine Windows system disk: {e}")
+            return None
+
+    def _get_partitions_windows(self) -> Optional[List[tuple]]:
+        """List of (disk_number, drive_letter) for every partition, or None
+        if detection failed. ENG-04: used to derive is_mounted per disk
+        instead of aliasing it to is_system."""
+        import csv
+        import io
+
+        try:
+            raw = self.executor.run_command(self.WINDOWS_GET_PARTITIONS_CMD)
+            if not raw:
+                return None
+            reader = csv.DictReader(io.StringIO(raw))
+            return [
+                ((row.get("DiskNumber") or "").strip(), (row.get("DriveLetter") or "").strip())
+                for row in reader
+            ]
+        except Exception as e:
+            logger.warning(f"[DiskScanner] Could not enumerate Windows partitions: {e}")
+            return None
 
     # ------------------------------------------------------------------
     # macOS Scanning
