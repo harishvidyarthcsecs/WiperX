@@ -717,6 +717,91 @@ class TestLocalExecutor:
 
 
 # ---------------------------------------------------------------------------
+# ENG-18/20: scan_disks wraps raw transport errors, and a close()-time
+# exception never masks the real result/error from either scan_disks or
+# execute_wipe.
+# ---------------------------------------------------------------------------
+
+class TestExecutionManagerErrorWrapping:
+    def test_scan_disks_wraps_raw_transport_error(self):
+        """ENG-18: a raw FileNotFoundError (e.g. missing SSH key) from
+        _build_executor_and_detect_os must not propagate unwrapped - callers
+        should see one consistent RuntimeError."""
+        from unittest.mock import patch
+        from core.execution_manager import ExecutionManager
+
+        manager = ExecutionManager()
+        with patch.object(
+            manager, "_build_executor_and_detect_os",
+            side_effect=FileNotFoundError("SSH key not found"),
+        ):
+            with pytest.raises(RuntimeError, match="Disk scan failed"):
+                manager.scan_disks()
+
+    def test_scan_disks_close_exception_does_not_mask_result(self):
+        """ENG-20: executor.close() raising must not prevent scan_disks from
+        returning its real result."""
+        from unittest.mock import MagicMock, patch
+        from core.execution_manager import ExecutionManager
+        from core.os_detector import OSType
+
+        manager = ExecutionManager()
+        mock_executor = MagicMock()
+        mock_executor.close.side_effect = RuntimeError("socket already closed")
+
+        with patch.object(
+            manager, "_build_executor_and_detect_os",
+            return_value=(mock_executor, OSType.LINUX),
+        ), patch("core.execution_manager.DiskScanner") as mock_scanner_cls:
+            mock_scanner = MagicMock()
+            mock_scanner.scan.return_value = ["disk-a"]
+            mock_scanner_cls.return_value = mock_scanner
+
+            result = manager.scan_disks()
+
+        assert result == ["disk-a"]
+
+    def test_execute_wipe_close_exception_does_not_mask_result(self):
+        """ENG-20: same guarantee for execute_wipe's WipeResult."""
+        from unittest.mock import MagicMock, patch
+        from core.execution_manager import ExecutionManager, ExecutionMode, WipeRequest
+        from core.disk_scanner import DiskInfo
+        from core.os_detector import OSType
+
+        manager = ExecutionManager()
+        disk = DiskInfo(identifier="sdb", is_system=False, is_mounted=False)
+        disk.size_bytes = 64 * 1024 * 1024
+        disk.bus_type = "USB"
+
+        mock_executor = MagicMock()
+        mock_executor.close.side_effect = RuntimeError("socket already closed")
+
+        with patch.object(
+            manager, "_build_executor_and_detect_os",
+            return_value=(mock_executor, OSType.LINUX),
+        ), patch("core.execution_manager.DiskScanner") as mock_scanner_cls, \
+                patch.object(manager, "_check_privileges"), \
+                patch("core.execution_manager.get_strategy") as mock_get_strategy, \
+                patch("core.verifier.WipeVerifier.verify", return_value={"verified": True}):
+
+            mock_scanner = MagicMock()
+            mock_scanner.scan.return_value = [disk]
+            mock_scanner_cls.return_value = mock_scanner
+            strat = MagicMock()
+            strat.name = "MockStrategy"
+            strat.execute.return_value = True
+            mock_get_strategy.return_value = strat
+
+            request = WipeRequest(
+                disk_identifier="sdb", confirmed_disk_name="sdb",
+                mode=ExecutionMode.LOCAL,
+            )
+            result = manager.execute_wipe(request)
+
+        assert result.success is True
+
+
+# ---------------------------------------------------------------------------
 # Method routing (Phase 2)
 # ---------------------------------------------------------------------------
 
@@ -786,3 +871,11 @@ class TestWipeMethodRouting:
         result, passes = self._run("bogus-method")
         assert passes is None
         assert result.method == "auto"
+
+    def test_unknown_method_logs_a_warning(self, caplog):
+        """ENG-19: the fallback must be visible at default log levels, not
+        just the in-buffer operator log."""
+        import logging
+        with caplog.at_level(logging.WARNING, logger="core.execution_manager"):
+            self._run("bogus-method")
+        assert any("bogus-method" in rec.message for rec in caplog.records)

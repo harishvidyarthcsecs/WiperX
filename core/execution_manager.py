@@ -130,13 +130,30 @@ class ExecutionManager:
         Returns:
             List[DiskInfo]: Discovered disks.
         """
-        executor, os_type = self._build_executor_and_detect_os(mode, remote_config)
-
+        # ENG-18: everything from connecting the executor through detecting
+        # the OS and scanning is wrapped in one try/except so a raw transport
+        # exception (missing SSH key -> FileNotFoundError, paramiko missing
+        # -> ImportError, bad host -> paramiko.AuthenticationException /
+        # SSHException, OS-detection failure -> RuntimeError) never leaks to
+        # the CLI/web caller unwrapped - they get one consistent exception
+        # type with a clear message instead.
+        executor = None
         try:
+            executor, os_type = self._build_executor_and_detect_os(mode, remote_config)
             scanner = DiskScanner(executor=executor, os_type=os_type)
             return scanner.scan()
+        except ValueError:
+            # Config validation (e.g. "remote_config is required for remote
+            # scans") is already a clear, specific message - don't obscure it.
+            raise
+        except Exception as e:
+            raise RuntimeError(f"Disk scan failed: {e}") from e
         finally:
-            executor.close()
+            if executor is not None:
+                try:
+                    executor.close()
+                except Exception as close_exc:  # noqa: BLE001 - ENG-20: never mask
+                    logger.warning(f"[ExecutionManager] executor.close() failed: {close_exc}")
 
     def execute_wipe(self, request: WipeRequest) -> WipeResult:
         """
@@ -272,6 +289,12 @@ class ExecutionManager:
                     _log(f"[Method] {method}: {describe(method)} "
                          f"({len(pass_list)} pass(es))")
                 except ValueError as exc:
+                    # ENG-19: this was previously logged to the in-buffer
+                    # operator log only (INFO-level via _log) - easy to miss
+                    # since it's mixed in with normal operational lines. Also
+                    # emit a real logger.warning so it shows up at default
+                    # log levels.
+                    logger.warning(f"[ExecutionManager] Unknown wipe method {exc}")
                     _log(f"[Method] {exc}; falling back to native default.")
                     method = "auto"
 
@@ -371,8 +394,15 @@ class ExecutionManager:
             )
 
         finally:
+            # ENG-20: a close()-time exception (e.g. a paramiko socket error
+            # in SSHExecutor.close()) must never override the WipeResult
+            # already selected above, nor mask whatever exception got us
+            # into this finally block in the first place.
             if executor:
-                executor.close()
+                try:
+                    executor.close()
+                except Exception as close_exc:  # noqa: BLE001
+                    logger.warning(f"[ExecutionManager] executor.close() failed: {close_exc}")
 
     # ------------------------------------------------------------------
     # Internal Helpers
