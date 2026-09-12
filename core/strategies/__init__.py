@@ -70,6 +70,31 @@ class WipeStrategy(ABC):
         if log_callback:
             log_callback(f"[{self.name}] {message}")
 
+    def _require_binary(
+        self, name: str, executor, install_hint: str, log_callback: Optional[Callable] = None
+    ) -> bool:
+        """ENG-09: verify a required external binary exists on the target
+        before running the destructive command that depends on it. A missing
+        binary otherwise surfaces as an opaque "command failed" deep inside
+        the wipe itself - this gives a clear, actionable message up front.
+
+        Returns:
+            bool: True if `name` is on the target's PATH, False otherwise
+            (an explanatory line naming the install package is logged).
+        """
+        try:
+            out = executor.run_command(f"command -v {shlex.quote(name)}", timeout=10)
+        except Exception:  # noqa: BLE001 - any failure means "not found"
+            out = ""
+        if not str(out).strip():
+            self._log(
+                f"ERROR: required tool '{name}' not found on target. "
+                f"Install: {install_hint}",
+                log_callback,
+            )
+            return False
+        return True
+
     def _run_passes(self, device_path, executor, passes, log_callback=None) -> bool:
         """
         Run an explicit list of PassSpec overwrites across a whole block device.
@@ -90,6 +115,9 @@ class WipeStrategy(ABC):
             bool: True if every write pass completed (ENOSPC on an unbounded
             fill counts as success — the device is full).
         """
+        if not self._require_binary("dd", executor, "apt install coreutils", log_callback):
+            return False
+
         quoted = shlex.quote(device_path)
         bs_mib = 4
         count_clause = ""
@@ -187,6 +215,11 @@ class LinuxHDDWipeStrategy(WipeStrategy):
             )
             return self._run_passes(device_path, executor, passes, log_callback)
 
+        if not self._require_binary(
+            "shred", executor, "apt install coreutils (usually preinstalled)", log_callback
+        ):
+            return False
+
         cmd = f"shred -v -n 1 -z {shlex.quote(device_path)}"
         self._log(f"Starting shred on {device_path}", log_callback)
         self._log(f"Command: {cmd}", log_callback)
@@ -224,16 +257,24 @@ class LinuxSSDWipeStrategy(WipeStrategy):
     def execute(self, disk, executor, log_callback=None, passes=None) -> bool:
         device_path = f"/dev/{disk.identifier}"
 
-        # Step 1: blkdiscard (TRIM hint — always, harmless if unsupported)
-        cmd_discard = f"blkdiscard {shlex.quote(device_path)}"
-        self._log(f"Step 1: blkdiscard on {device_path}", log_callback)
-        self._log(f"Command: {cmd_discard}", log_callback)
-        try:
-            out = executor.run_command(cmd_discard, timeout=600)
-            self._log(f"blkdiscard output: {out}", log_callback)
-        except Exception as e:
-            self._log(f"WARNING: blkdiscard failed (non-fatal): {e}", log_callback)
-            # blkdiscard may not be supported on all SSDs; continue to overwrite
+        if not self._require_binary("dd", executor, "apt install coreutils", log_callback):
+            return False
+
+        # Step 1: blkdiscard (TRIM hint — always, harmless if unsupported).
+        # Missing binary is non-fatal here (same as a failed discard) since
+        # the zero-pass overwrite in step 2 is what actually sanitises data.
+        if self._require_binary("blkdiscard", executor, "apt install util-linux", log_callback):
+            cmd_discard = f"blkdiscard {shlex.quote(device_path)}"
+            self._log(f"Step 1: blkdiscard on {device_path}", log_callback)
+            self._log(f"Command: {cmd_discard}", log_callback)
+            try:
+                out = executor.run_command(cmd_discard, timeout=600)
+                self._log(f"blkdiscard output: {out}", log_callback)
+            except Exception as e:
+                self._log(f"WARNING: blkdiscard failed (non-fatal): {e}", log_callback)
+                # blkdiscard may not be supported on all SSDs; continue to overwrite
+        else:
+            self._log("Step 1: blkdiscard unavailable; skipping to overwrite.", log_callback)
 
         # Step 2: overwrite pass(es)
         if passes:
@@ -297,6 +338,9 @@ class LinuxNVMeWipeStrategy(WipeStrategy):
             )
             return False
 
+        if not self._require_binary("nvme", executor, "apt install nvme-cli", log_callback):
+            return False
+
         device_path = f"/dev/{identifier}"
         cmd = f"nvme format {shlex.quote(device_path)} --ses=1 --force"
 
@@ -336,6 +380,9 @@ class LinuxUSBWipeStrategy(WipeStrategy):
 
     def execute(self, disk, executor, log_callback=None, passes=None) -> bool:
         device_path = f"/dev/{disk.identifier}"
+
+        if not self._require_binary("dd", executor, "apt install coreutils", log_callback):
+            return False
 
         if passes:
             self._log(

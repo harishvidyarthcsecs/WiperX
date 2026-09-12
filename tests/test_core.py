@@ -261,6 +261,56 @@ class TestStrategyFactory:
 
 
 # ---------------------------------------------------------------------------
+# ENG-09: a missing external binary must surface as a clear, actionable
+# message before the destructive command runs, not as an opaque failure.
+# ---------------------------------------------------------------------------
+
+class TestBinaryPreflight:
+    def _make_disk(self, disk_type, bus_type, identifier):
+        from core.disk_scanner import DiskInfo
+        return DiskInfo(identifier=identifier, disk_type=disk_type, bus_type=bus_type)
+
+    def test_missing_shred_refuses_without_running_destructive_command(self):
+        from unittest.mock import MagicMock
+        from core.strategies import LinuxHDDWipeStrategy
+
+        disk = self._make_disk("HDD", "SATA", "sdb")
+        executor = MagicMock()
+        executor.run_command.return_value = ""  # `command -v shred` finds nothing
+
+        ok = LinuxHDDWipeStrategy().execute(disk, executor, log_callback=None)
+
+        assert ok is False
+        executor.run_command.assert_called_once_with("command -v shred", timeout=10)
+
+    def test_missing_nvme_binary_refuses(self):
+        from unittest.mock import MagicMock
+        from core.strategies import LinuxNVMeWipeStrategy
+
+        disk = self._make_disk("NVMe", "NVMe", "nvme0n1")
+        executor = MagicMock()
+        executor.run_command.return_value = ""
+
+        ok = LinuxNVMeWipeStrategy().execute(disk, executor, log_callback=None)
+
+        assert ok is False
+
+    def test_present_binary_allows_execute_to_proceed(self):
+        from unittest.mock import MagicMock
+        from core.strategies import LinuxHDDWipeStrategy
+
+        disk = self._make_disk("HDD", "SATA", "sdb")
+        executor = MagicMock()
+        executor.run_command.return_value = "/usr/bin/shred"
+
+        ok = LinuxHDDWipeStrategy().execute(disk, executor, log_callback=None)
+
+        assert ok is True
+        # preflight + the actual shred command
+        assert executor.run_command.call_count == 2
+
+
+# ---------------------------------------------------------------------------
 # ENG-12: every interpolated device path/identifier must be shell-quoted
 # before it reaches an executor's shell=True command string.
 # ---------------------------------------------------------------------------
@@ -278,7 +328,7 @@ class TestDevicePathQuoting:
         evil = "sda; rm -rf /"
         disk = self._make_disk("HDD", "SATA", evil)
         executor = MagicMock()
-        executor.run_command.return_value = ""
+        executor.run_command.return_value = "/usr/bin/shred"  # truthy: passes preflight
 
         LinuxHDDWipeStrategy().execute(disk, executor, log_callback=None)
 
