@@ -149,8 +149,8 @@ Work is tracked in `plans/` and delivered in phases A1–A7 (see the approved pl
 
 | ID | Symptom | Trigger | Location | Status |
 |----|---------|---------|----------|--------|
-| CLI-01 | `wipe` **cannot run unattended** — 4 interactive prompts, no `--yes`/`--force`; appears to hang on stdin | cron / CI / pipe / subprocess with no TTY | `cli/wiperx_cli.py:174,180,188,194` | open (A5) |
-| CLI-02 | Raw `KeyError` traceback | `getpass.getuser()` (prompt default) evaluated before the try, no resolvable username | `cli/wiperx_cli.py:194` | open (A5) |
+| CLI-01 | `wipe` **cannot run unattended** — 4 interactive prompts, no `--yes`/`--force`; appears to hang on stdin | cron / CI / pipe / subprocess with no TTY | `cli/wiperx_cli.py:174,180,188,194` | **fixed** (A5) — new `--yes`/`--assume-yes` flag skips all three interactive gates (first confirm, manual retype, final confirm); requires `--operator` up front since there's no TTY for that prompt either; `confirmed_disk_name` is still set to `disk_identifier` so `ExecutionManager`'s own anti-typo safety check is unaffected. `tests/test_cli.py::TestWipeYesFlag` |
+| CLI-02 | Raw `KeyError` traceback | `getpass.getuser()` (prompt default) evaluated before the try, no resolvable username | `cli/wiperx_cli.py:194` | **fixed** (A5) — the default is now computed in its own `try/except`, falling back to the literal string `"unknown"` instead of raising; `tests/test_cli.py::TestGetpassDefaultFallback::test_getuser_failure_falls_back_to_unknown_default` |
 | CLI-03 | `recover` **always exits 0** — 0 files recovered / partial failure / degraded backends never signalled | Any recovery outcome short of a FATAL exception | `cli/wiperx_cli.py:462` | open (A5) |
 | CLI-04 | Successful wipe → CLI exits 1 "FATAL" with **no report saved** | `open()` write error in `generate_json_report` / PDF after the wipe | `cli/wiperx_cli.py:242-260` | open (A4/A5) |
 | CLI-05 | "SECRET_KEY not set" with no hint | `.env` present but `python-dotenv` not installed → silent `except Exception: pass` | `cli/wiperx_cli.py:34-39`; also `run.py`, `web/app.py:33-38` | open (A5/A6) |

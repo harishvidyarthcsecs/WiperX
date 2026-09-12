@@ -131,8 +131,13 @@ def scan(mode, host, ssh_user, ssh_key, ssh_port, use_winrm, winrm_user, winrm_p
                    "Thunderbolt, disk image) before wiping. System and internal "
                    "disks are still refused.")
 @click.option("--operator", default=None, help="Operator name for report.")
+@click.option("--yes", "--assume-yes", "assume_yes", is_flag=True,
+              help="Skip all interactive confirmation prompts (for cron/CI/"
+                   "unattended runs). Requires --operator - there is no TTY "
+                   "to fall back on for the operator-name prompt either.")
 def wipe(disk_identifier, mode, host, ssh_user, ssh_key, ssh_port,
-         use_winrm, winrm_user, winrm_port, method, report_pdf, force_unmount, operator):
+         use_winrm, winrm_user, winrm_port, method, report_pdf, force_unmount,
+         operator, assume_yes):
     """
     Wipe a disk or a single partition.
 
@@ -148,6 +153,16 @@ def wipe(disk_identifier, mode, host, ssh_user, ssh_key, ssh_port,
         wiperx wipe 1 --remote --host 192.168.1.20 --winrm --winrm-user Administrator
     """
     print_banner()
+
+    if assume_yes and not operator:
+        click.echo(
+            f"{Fore.RED}ERROR: --operator is required when using --yes "
+            f"(no interactive prompt to fall back on for unattended runs)."
+            f"{Style.RESET_ALL}",
+            err=True,
+        )
+        sys.exit(2)
+
     manager = ExecutionManager()
 
     exec_mode, remote_config = _resolve_mode(
@@ -164,34 +179,62 @@ def wipe(disk_identifier, mode, host, ssh_user, ssh_key, ssh_port,
     click.echo(f"  Method  : {method}")
     click.echo(f"{'='*60}{Style.RESET_ALL}\n")
 
-    # ── Safety: First confirmation ──
     click.echo(
         f"{Fore.RED}WARNING: This will PERMANENTLY and IRREVERSIBLY destroy all data "
         f"on disk '{disk_identifier}'.{Style.RESET_ALL}"
     )
     click.echo("This action CANNOT be undone.\n")
 
-    if not click.confirm(f"Are you sure you want to wipe disk '{disk_identifier}'?", default=False):
-        click.echo("Wipe aborted.")
-        sys.exit(0)
+    if assume_yes:
+        # CLI-01: unattended run - --operator was already required above, so
+        # there's no missing-name prompt to skip. confirmed_disk_name still
+        # equals disk_identifier, so ExecutionManager's own anti-typo check
+        # (Safety Check 2) is not weakened - only the *interactive* prompts
+        # that block on a TTY are skipped.
+        click.echo(
+            f"{Fore.YELLOW}--yes supplied: skipping interactive confirmation "
+            f"prompts.{Style.RESET_ALL}\n"
+        )
+        typed_name = disk_identifier
+    else:
+        # ── Safety: First confirmation ──
+        confirm_msg = f"Are you sure you want to wipe disk '{disk_identifier}'?"
+        if not click.confirm(confirm_msg, default=False):
+            click.echo("Wipe aborted.")
+            sys.exit(0)
 
-    # ── Safety: Manual disk name entry ──
-    click.echo(f"\n{Fore.YELLOW}SECURITY CHECK: Please type the disk identifier manually to confirm:{Style.RESET_ALL}")
-    typed_name = click.prompt(f"Type '{disk_identifier}' to confirm")
+        # ── Safety: Manual disk name entry ──
+        click.echo(
+            f"\n{Fore.YELLOW}SECURITY CHECK: Please type the disk identifier "
+            f"manually to confirm:{Style.RESET_ALL}"
+        )
+        typed_name = click.prompt(f"Type '{disk_identifier}' to confirm")
 
-    if typed_name.strip() != disk_identifier.strip():
-        click.echo(f"{Fore.RED}ERROR: Entered '{typed_name}' but expected '{disk_identifier}'. Aborting.{Style.RESET_ALL}")
-        sys.exit(1)
+        if typed_name.strip() != disk_identifier.strip():
+            click.echo(
+                f"{Fore.RED}ERROR: Entered '{typed_name}' but expected "
+                f"'{disk_identifier}'. Aborting.{Style.RESET_ALL}"
+            )
+            sys.exit(1)
 
-    # ── Safety: Second confirmation ──
-    click.echo(f"\n{Fore.RED}FINAL CONFIRMATION:{Style.RESET_ALL}")
-    if not click.confirm("Last chance: Proceed with permanent data destruction?", default=False):
-        click.echo("Wipe aborted.")
-        sys.exit(0)
+        # ── Safety: Second confirmation ──
+        click.echo(f"\n{Fore.RED}FINAL CONFIRMATION:{Style.RESET_ALL}")
+        final_msg = "Last chance: Proceed with permanent data destruction?"
+        if not click.confirm(final_msg, default=False):
+            click.echo("Wipe aborted.")
+            sys.exit(0)
 
     # ── Get operator name ──
     if not operator:
-        operator = click.prompt("Operator name (for report)", default=getpass.getuser())
+        # CLI-02: getpass.getuser() can raise (KeyError/OSError) when no
+        # username resolves - e.g. a container/CI shell with no matching
+        # /etc/passwd entry and no USER/LOGNAME env var. Never let that raise
+        # raw above this command's own try/except.
+        try:
+            default_operator = getpass.getuser()
+        except Exception:  # noqa: BLE001 - fall back to a plain placeholder
+            default_operator = "unknown"
+        operator = click.prompt("Operator name (for report)", default=default_operator)
 
     # ── Execute ──
     click.echo(f"\n{Fore.CYAN}Starting wipe...{Style.RESET_ALL}\n")
